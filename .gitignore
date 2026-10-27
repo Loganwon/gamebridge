@@ -1,0 +1,14 @@
+node_modules/
+dist/
+site/dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+.sites-runtime/
+.tools/
+output/
+artifacts/
+*.log
+*.tar.gz
+*.zip

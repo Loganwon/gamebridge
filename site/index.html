@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f3ed" />
+    <meta name="description" content="GameBridge 是一个本地运行的场景转换原型：导入体素场景，预览变换，导出到 Minecraft、Roblox Studio 或 Godot。" />
+    <title>GameBridge — 让场景去往下一个世界</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#studio">跳转到转换工作台</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="项目与操作步骤">
+        <a class="brand" href="./" aria-label="GameBridge 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>GameBridge<span class="brand-caption">SCENE TRANSLATOR</span></span></a>
+        <div class="workspace-label">工作空间 <span>01</span></div>
+        <a class="workspace-item" href="#studio"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 0v9m0 10V12m0 0 9-4m-9 4L3 8"/></svg>场景转换器<span class="active-dot"></span></a>
+        <div class="sidebar-section-label">从一个世界，到另一个世界</div>
+        <ol class="steps">
+          <li><a href="#import-section"><span class="step-number">01</span><span>导入场景<small>选择文件或使用示例</small></span><span class="step-check" aria-hidden="true">✓</span></a></li>
+          <li><a href="#transform-section"><span class="step-number">02</span><span>调整与预览<small>让比例与方向刚刚好</small></span></a></li>
+          <li><a href="#export-section"><span class="step-number">03</span><span>导出到新世界<small>获取可导入的场景文件</small></span></a></li>
+        </ol>
+        <div class="sidebar-note"><span class="local-icon" aria-hidden="true">↳</span><strong>场景留在你的设备上</strong><p>解析、预览和转换均在浏览器本地完成。</p><span class="local-badge"><span></span> 本地运行</span></div>
+        <div class="sidebar-footer"><span>EARLY ACCESS</span><span>v0.1 Alpha</span></div>
+      </aside>
+
+      <main id="studio">
+        <header class="topbar"><span class="breadcrumb">工作空间 <span>/</span> <strong>场景转换器</strong></span><button class="text-button" id="help-button" type="button"><span class="help-icon" aria-hidden="true">?</span> 查看说明 <span aria-hidden="true">↗</span></button></header>
+        <section class="page-intro" aria-labelledby="page-title"><div><p class="eyebrow"><span></span> BUILD ONCE. EXPLORE MORE.</p><h1 id="page-title">让场景，去往下一个世界<span>。</span></h1><p class="intro-description">把一份体素创意，转换成不同游戏能理解的场景。</p></div><span class="version-pill">场景转换 · Alpha</span></section>
+
+        <div class="studio-grid">
+          <section class="preview-column" aria-label="场景预览">
+            <div class="preview-panel">
+              <div class="preview-toolbar"><span class="preview-heading"><span class="preview-indicator"></span> 场景预览 <span class="preview-divider">/</span> <span id="scene-name">示例场景</span></span><span class="preview-mode">ISOMETRIC</span></div>
+              <div class="canvas-wrap" id="canvas-wrap"><canvas id="scene-canvas" aria-label="当前场景的等距三维预览" role="img"></canvas><div class="preview-watermark" aria-hidden="true">GB / SCENE 001</div><div class="preview-empty" id="preview-empty" hidden>导入一个场景，开始连接世界。</div><div class="canvas-bottom"><span class="axis-key" aria-hidden="true"><b>X</b><b>Y</b><b>Z</b></span><span id="preview-caption">示例场景 · 等距视图</span><button id="orbit-button" type="button" title="旋转预览视角，不改变导出方向" aria-label="旋转预览视角"><span aria-hidden="true">⟳</span></button></div></div>
+              <div class="scene-stats"><div><span>体素数量</span><strong id="voxel-count">—</strong></div><div><span>场景尺寸 <small>X × Y × Z</small></span><strong id="scene-size">—</strong></div><div><span>材质颜色</span><strong id="material-count">—</strong></div><div class="palette-stat"><div id="palette-swatches" aria-label="场景颜色"></div><span id="palette-caption">场景调色板</span></div></div>
+            </div>
+
+            <section class="import-panel" id="import-section" aria-labelledby="import-title"><div class="section-heading"><div><span class="section-number">01</span><h2 id="import-title">源场景</h2></div><button id="demo-button" class="text-button" type="button">加载示例 <span aria-hidden="true">↺</span></button></div><label class="drop-zone" id="drop-zone" for="scene-file"><input id="scene-file" type="file" accept=".vox,.schem,.json" /><span class="upload-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 15v5h16v-5"/></svg></span><span class="drop-copy"><strong>拖入场景文件，或<span>点击选择</span></strong><small>Minecraft .schem / 单模型 .vox / GameBridge .json</small></span><span class="file-type-badge">VOX / SCHEM</span></label><p class="source-status" id="source-status" role="status" aria-live="polite">正在准备示例场景…</p></section>
+            <div class="status-message" id="error-message" role="alert" hidden></div>
+            <div class="status-message success" id="action-message" role="status" aria-live="polite" hidden></div>
+          </section>
+
+          <aside class="settings-column" aria-label="场景转换设置">
+            <section class="settings-card" id="export-section" aria-labelledby="target-title"><div class="section-heading"><div><span class="section-number">03</span><h2 id="target-title">选择目的地</h2></div><span class="small-label">TARGET</span></div><label class="field-label" for="target-select">导出平台</label><div class="select-wrap target-select-wrap"><span class="target-symbol" aria-hidden="true">▦</span><select id="target-select"><option value="minecraft">Minecraft Java</option><option value="roblox">Roblox Studio</option><option value="godot">Godot 4</option><option value="json">GameBridge JSON</option></select></div><div class="target-info"><span class="file-extension" id="target-extension">.mcfunction</span><p id="target-description">导出方块放置指令，通过数据包导入自己的世界。</p></div><div class="route-line" aria-label="转换路径"><span>体素场景</span><span class="route-dots" aria-hidden="true"></span><span class="route-arrow" aria-hidden="true">→</span><strong id="route-target">Minecraft</strong></div></section>
+
+            <section class="settings-card transform-card" id="transform-section" aria-labelledby="transform-title"><div class="section-heading"><div><span class="section-number">02</span><h2 id="transform-title">场景调整</h2></div><button id="reset-button" type="button" class="text-button reset-button">重置</button></div><div class="transform-fields"><div><label class="field-label" for="rotation-select">旋转方向</label><div class="select-wrap"><select id="rotation-select"><option value="0">0° · 原始方向</option><option value="90">90° · 顺时针</option><option value="180">180°</option><option value="270">270° · 顺时针</option></select></div></div><div><label class="field-label" for="scale-select">体素缩放</label><div class="select-wrap"><select id="scale-select"><option value="1">1× · 原始大小</option><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></div></div></div><label class="switch-row" for="mirror-toggle"><span><strong>水平镜像</strong><small>沿 X 轴翻转场景</small></span><input type="checkbox" id="mirror-toggle" /><span class="switch" aria-hidden="true"></span></label><p class="capacity-note"><span aria-hidden="true">ⓘ</span> 最多 32,768 体素 · 单轴 ≤128 · 文件 ≤8 MiB。</p></section>
+
+            <section class="export-card" aria-label="导出文件"><div class="export-ready"><span class="ready-dot" id="ready-dot"></span><span id="export-status" role="status" aria-live="polite">正在准备转换</span><span id="export-format">MCFUNCTION</span></div><p id="export-filename">—</p><button class="export-button" id="download-button" type="button" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v13m0 0 5-5m-5 5-5-5M4 16v5h16v-5"/></svg><span>导出场景</span><span aria-hidden="true">↗</span></button><p class="export-note">生成文件后，在目标游戏的编辑器中导入。</p></section>
+          </aside>
+        </div>
+
+        <div class="below-studio"><details class="code-panel" id="code-panel"><summary><span><span class="code-icon" aria-hidden="true">&lt;/&gt;</span> 查看导出内容</span><span class="summary-tail">生成文件预览 <span aria-hidden="true">⌄</span></span></summary><div class="code-toolbar"><span id="code-filename">尚无导出文件</span><button class="text-button" id="copy-button" type="button" disabled>复制内容</button></div><pre><code id="code-preview">正在准备…</code></pre><p id="code-truncated" hidden>为保证预览流畅，这里只展示前 24,000 个字符。下载和复制包含完整文件。</p></details><div class="compatibility-note"><span class="note-icon" aria-hidden="true">i</span><p><strong>通过文件串联场景。</strong>当前未连接任何运行中的游戏。此原型使用离线文件与编辑器导入；是否允许导入取决于游戏规则，无法保证不触发反作弊。</p></div><ul id="conversion-warnings" class="conversion-warnings" aria-label="导出注意事项" hidden></ul></div>
+        <footer class="main-footer"><span>GameBridge <span>把创作带到更多世界</span></span><span>LOCAL-FIRST <span class="footer-dot">·</span> OPEN FORMAT</span></footer>
+      </main>
+    </div>
+
+    <dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><span class="eyebrow">GAMEBRIDGE / QUICK GUIDE</span><button type="button" id="close-help" class="dialog-close" aria-label="关闭说明">×</button></div><h2 id="help-title">一次转换，新的起点。</h2><p class="help-intro">这是可运行的场景转换原型。首版转换体素几何与颜色，不包含角色、脚本、纹理或游戏玩法。导出格式已实现，目标游戏和编辑器的实机导入尚未验收。</p><section><h3>01 / 支持什么文件？</h3><p>导入 Minecraft WorldEdit / Sponge v2、v3 建筑 <code>.schem</code>、单模型 MagicaVoxel <code>.vox</code>，或 GameBridge <code>.json</code>。不支持完整世界存档（.mcworld / .mca）或直接提取其他游戏地图。Minecraft 建筑仅保留静态形状和近似颜色，不保留实体、红石逻辑和方块实体数据。可先加载示例，再导出 JSON 查看格式。</p></section><section><h3>02 / 怎样导入目标游戏？</h3><dl><dt>Minecraft Java 1.21</dt><dd>将 <code>.mcfunction</code> 放入符合当前版本要求的数据包 <code>data/&lt;命名空间&gt;/function/</code> 中。在自己的测试世界加载数据包，并通过 <code>/function 命名空间:文件名</code> 执行。函数以执行位置为原点放置方块，可能覆盖已有建筑；请使用空白测试区域。不是直接粘贴到聊天框的命令清单。</dd><dt>Roblox Studio</dt><dd>在自己项目的 Studio 编辑模式中，将 <code>.lua</code> 内容粘贴到 Command Bar 执行，生成独立模型。只在 Studio 使用，不在运行中的在线游戏执行。</dd><dt>Godot 4</dt><dd>将 <code>.tscn</code> 放入项目资源目录并打开场景。输出为静态可视方块，不包含碰撞体、物理或游戏逻辑。</dd><dt>GameBridge JSON</dt><dd>保存可重复编辑的中间场景格式，或作为后续游戏适配器的输入。</dd></dl></section><section><h3>03 / 关于游戏规则与反作弊</h3><p>GameBridge 不连接游戏进程；通过本地文件和创作工具完成转换。每款游戏的导入能力和使用规则不同，无法承诺任何模式下都不触发反作弊。请在你有权编辑的离线世界、私人测试世界或官方编辑器中使用。</p></section><p class="help-footer">所有转换都在当前浏览器完成，导入的场景文件不会上传。</p></dialog>
+  </body>
+</html>
