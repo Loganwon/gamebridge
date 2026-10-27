@@ -2,6 +2,8 @@
 
 把静态建筑带到另一个游戏的编辑环境。首版是可运行的体素场景转换器，包含浏览器工作台、命令行、格式验证和自动部署配置。
 
+[在线使用](https://loganwon.github.io/gamebridge/) · [GitHub 仓库](https://github.com/Loganwon/gamebridge) · [自动测试与部署](https://github.com/Loganwon/gamebridge/actions/workflows/check-and-deploy.yml)
+
 **v0.1 Alpha：文件转换原型，目标游戏实机验收待完成。** “通用”指可扩展的输入/输出适配器；目前不支持任意游戏存档、运行中的游戏互联或完整玩法迁移。不承诺所有游戏零反作弊触发。
 
 ## 转换链路
@@ -83,11 +85,11 @@ gamebridge-pack/
 
 ## GitHub 与在线更新
 
-目标：在用户账户下新建公开仓库 `gamebridge`。仓库建立、推送和 GitHub Pages 运行状态以实际 GitHub 返回为准；仅有这些文件不代表已经连接成功。
+本项目已连接公开仓库 [Loganwon/gamebridge](https://github.com/Loganwon/gamebridge)。GitHub Pages 已启用，地址为 [loganwon.github.io/gamebridge](https://loganwon.github.io/gamebridge/)。每次推送 `main`，通过测试和构建后自动更新网页；首次远程部署已验收通过。
 
 认证完成后可运行 `npm run github:publish`。该脚本需要官方 [GitHub CLI](https://cli.github.com/) 及 `gh auth login`；它只推送已经提交且工作区干净的 `main`，遇到同名既有仓库或其他 `origin` 不会覆盖。
 
-首次启用网页自动更新：
+以下步骤供重新配置或部署自己的副本使用；本仓库已完成：
 
 1. 仓库 Settings → Pages → Source 选择 GitHub Actions。
 2. Settings → Secrets and variables → Actions → Variables，设置 `PAGES_ENABLED` 为 `true`。
