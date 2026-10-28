@@ -4,6 +4,7 @@ const ui = {
   analyze: $('analyze-button'), analyzeLabel: $('analyze-label'), example: $('example-project-button'),
   settings: $('model-settings'), key: $('provider-api-key'), base: $('provider-base-url'), model: $('provider-model'),
   generate: $('generate-button'), error: $('error-message'), action: $('action-message'), download: $('download-button'),
+  pipeline: $('pipeline-start'), sourceOnly: $('source-start'), repairs: $('repair-limit'), refreshEnvironment: $('refresh-environment'), cancel: $('cancel-job'),
 };
 const isLocalOrigin = ['localhost', '127.0.0.1'].includes(location.hostname);
 let serviceReady = false;
@@ -14,6 +15,13 @@ let currentPlan = null;
 let currentProject = null;
 let examplePlan = false;
 let selectedFile = null;
+let buildEnvironment = null;
+let environmentChecking = false;
+let activeJobId = null;
+let pollTimer = null;
+let requestRevision = 0;
+const terminalJobs = new Set(['generated', 'passed', 'failed', 'blocked', 'cancelled']);
+const jobLabels = {queued: '任务已排队', generating: '模型正在生成源码', generated: '源码已生成 · 尚未编译', compiling: '正在编译工程', repairing: '模型正在修复编译错误', passed: '编译通过 · 游戏未验收', failed: '制作流程未通过', blocked: '需要补充本地环境', cancelled: '任务已取消'};
 const statuses = {
   draft_supported: {label: '可生成草稿', className: 'draft-supported'},
   needs_assets: {label: '需要素材', className: 'needs-assets'},
@@ -49,9 +57,25 @@ function setBusy(value, label) {
   ui.analyze.disabled = value || !serviceReady;
   ui.example.disabled = value || !serviceReady;
   ui.generate.disabled = value || !serviceReady || !planId || !canGenerate(currentPlan);
+  ui.sourceOnly.disabled = value || !serviceReady || !planId || !canGenerate(currentPlan);
+  ui.pipeline.disabled = value || !serviceReady || !planId || !canGenerate(currentPlan) || environmentChecking || buildEnvironment?.ready !== true;
+  ui.repairs.disabled = value || !serviceReady;
+  ui.refreshEnvironment.disabled = value || !serviceReady || environmentChecking;
   ui.analyzeLabel.textContent = value && label ? label : '分析需求（调用模型）';
   for (const input of [ui.host, ui.source, ui.description, ui.key, ui.base, ui.model, $('clear-key')]) input.disabled = value || !serviceReady;
   for (const button of document.querySelectorAll('[data-example]')) button.disabled = value;
+}
+function providerValues() { return {apiKey: ui.key.value.trim(), baseUrl: ui.base.value.trim(), model: ui.model.value.trim()}; }
+function stopPolling() { if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null; }
+function resetJob() {
+  stopPolling();
+  const previousJob = activeJobId;
+  activeJobId = null;
+  if (previousJob && serviceReady) api('/api/jobs/' + previousJob + '/cancel').catch(() => {});
+  $('job-progress').hidden = true;
+  $('job-events').replaceChildren(); $('job-attempts').replaceChildren();
+  $('job-message').textContent = ''; $('job-badge').textContent = '等待计划';
+  ui.cancel.hidden = true;
 }
 function stage(current, complete = []) {
   for (const node of document.querySelectorAll('.workflow-nav li')) {
@@ -75,12 +99,16 @@ function resetProject() {
   $('project-note').textContent = '生成源码与静态检查不代表 Mod 已经可以在游戏内运行。';
   ui.download.removeAttribute('href');
   ui.download.removeAttribute('download');
+  ui.download.replaceChildren(element('span', '↓'), document.createTextNode(' 下载源码工程'));
   ui.download.classList.add('is-disabled');
   ui.download.setAttribute('aria-disabled', 'true');
   ui.download.tabIndex = -1;
 }
 function invalidatePlan() {
-  if (busy) return;
+  if (busy && !activeJobId) return;
+  requestRevision++;
+  resetJob();
+  if (busy) setBusy(false);
   planId = null; currentPlan = null; examplePlan = false;
   $('empty-plan').hidden = false;
   $('plan-content').hidden = true;
@@ -88,6 +116,7 @@ function invalidatePlan() {
   $('plan-badge').classList.remove('is-example');
   ui.generate.disabled = true;
   resetProject(); resetMessages(); stage('request');
+  setBusy(busy);
 }
 function requestValues() { return {hostGame: ui.host.value.trim(), sourceGame: ui.source.value.trim(), description: ui.description.value.trim()}; }
 function canGenerate(plan) {
@@ -95,9 +124,9 @@ function canGenerate(plan) {
   const host = String(plan.hostGame || '').toLowerCase().replace(/[_\s]/g, '-');
   return ['stardew-valley', 'stardew', '星露谷物语'].includes(host);
 }
-async function api(url, body) {
+async function api(url, body, method = 'POST') {
   if (!isLocalOrigin || !serviceReady) throw new Error('请在本地运行 npm run dev 后使用制作功能。');
-  const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  const response = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, ...(method === 'GET' ? {cache: 'no-store'} : {body: JSON.stringify(body || {})})});
   let data;
   try { data = await response.json(); } catch { throw new Error('本地服务返回了无法识别的结果。请重启服务后重试。'); }
   if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : data.error?.message || data.message || '请求失败（HTTP ' + response.status + '）。');
@@ -141,6 +170,11 @@ function renderPlan(result, isExample = false) {
   $('plan-parameters').textContent = JSON.stringify({hostGame: currentPlan.hostGame, sourceGame: currentPlan.sourceGame, mechanics: currentPlan.mechanics || []}, null, 2);
   $('generation-hint').textContent = canGenerate(currentPlan) ? '只生成已列明的草稿子集；素材与适配缺口会随工程保留。' : '当前计划缺少可用的宿主生成器或动作定义，保留需求等待适配。';
   ui.generate.disabled = busy || !serviceReady || !canGenerate(currentPlan);
+  $('job-badge').textContent = '可准备生成';
+  $('pipeline-hint').textContent = canGenerate(currentPlan)
+    ? '模型只处理当前适配器的生成范围；素材与玩法缺口仍需另行完成。编译通过后还要进入游戏验收。'
+    : '当前宿主或机制缺少生成适配器，完整需求继续保留，暂不能进入 AI 编译流程。';
+  setBusy(busy);
   stage('plan', ['request']);
 }
 function selectFile(index) {
@@ -151,33 +185,37 @@ function selectFile(index) {
   $('source-preview').textContent = typeof file.content === 'string' ? file.content : String(file.content ?? '');
   for (const [i, button] of [...$('file-list').children].entries()) button.setAttribute('aria-current', i === index ? 'true' : 'false');
 }
-function renderProject(result) {
+function renderProject(result, {aiGenerated = false} = {}) {
   if (!result || !Array.isArray(result.files) || !result.files.length) throw new Error('工程未包含源码文件，未开放下载。');
   currentProject = result;
   const report = result.report || {};
   const staticPassed = report.staticValidation?.passed === true;
+  const compiled = report.build === 'passed';
+  const modelSource = aiGenerated || report.codeProvenance === 'model' || report.generation === 'model';
   $('file-count').textContent = result.files.length + ' FILES';
   $('file-list').replaceChildren(...result.files.map((file, index) => {
     const button = element('button', file.path); button.type = 'button'; button.title = file.path;
     button.addEventListener('click', () => selectFile(index)); return button;
   }));
   selectFile(Math.max(0, result.files.findIndex(file => file.path.endsWith('ModEntry.cs'))));
-  $('source-status').textContent = examplePlan ? '示例源码已生成' : '源码草稿已生成';
+  $('source-status').textContent = modelSource ? 'AI 源码已生成' : examplePlan ? '示例源码已生成' : '源码草稿已生成';
   $('source-state').classList.add('is-complete');
   $('static-status').textContent = staticPassed ? '静态检查通过' : '未取得通过结果';
   $('static-state').classList.toggle('is-complete', staticPassed);
-  $('game-status').textContent = '构建 / 游戏实测待验证';
-  $('project-status').textContent = examplePlan ? '示例源码工程 · 未调用云端模型' : 'Mod 源码草稿已生成';
-  $('project-note').textContent = '含源码、配置与需求缺口；尚未构建，未在目标游戏中验证。请按工程说明继续检查。';
+  $('game-status').textContent = compiled ? '编译通过 / 游戏未验收' : report.build === 'failed' ? '编译未通过 / 游戏未验收' : '构建 / 游戏实测待验证';
+  $('project-status').textContent = compiled ? 'Mod 工程编译通过 · 游戏未验收' : modelSource ? 'AI Mod 源码草稿' : examplePlan ? '示例源码工程 · 未调用云端模型' : 'Mod 源码草稿已生成';
+  $('project-note').textContent = compiled ? '编译通过仅确认本地构建结果；完整需求、素材与真实游戏表现仍需核查。' : '含源码、配置与需求缺口；未获得构建通过结果，未在目标游戏中验证。';
+  ui.download.replaceChildren(element('span', '↓'), document.createTextNode(compiled ? ' 下载工程与编译结果' : ' 下载源码工程'));
   if (typeof result.downloadUrl === 'string' && /^\/api\/projects\/[A-Za-z0-9_-]+\/download$/.test(result.downloadUrl)) {
     ui.download.href = result.downloadUrl;
     ui.download.download = '';
     ui.download.classList.remove('is-disabled'); ui.download.setAttribute('aria-disabled', 'false'); ui.download.tabIndex = 0;
   } else throw new Error('工程下载地址无效，未开放下载。');
-  stage(staticPassed ? 'game' : 'static', staticPassed ? ['request','plan','source','static'] : ['request','plan','source']);
+  stage(compiled ? 'game' : 'static', compiled ? ['request','plan','source','static'] : ['request','plan','source']);
 }
 async function generateProject() {
   if (!planId || !canGenerate(currentPlan)) return;
+  resetJob();
   resetMessages(); setBusy(true, '正在生成工程…'); stage('source', ['request','plan']);
   try {
     const result = await api('/api/projects', {planId});
@@ -186,11 +224,116 @@ async function generateProject() {
   } catch (error) { showError(error); stage('plan', ['request']); }
   finally { setBusy(false); }
 }
+function updateBudget() {
+  const repairs = Number(ui.repairs.value);
+  $('pipeline-cost').textContent = '本次最多调用模型 ' + (1 + repairs) + ' 次（1 次生成 + ' + repairs + ' 次修复）；需求分析的调用另计。仅编译错误触发修复。';
+}
+async function refreshEnvironment() {
+  if (!serviceReady || environmentChecking) return;
+  environmentChecking = true; setBusy(busy);
+  $('environment-summary').textContent = '正在检查 SDK 与游戏引用…';
+  try {
+    const environment = await api('/api/environment', undefined, 'GET');
+    buildEnvironment = environment;
+    $('environment-summary').textContent = environment.ready === true
+      ? '构建环境已就绪 · SDK ' + (environment.dotnet?.version || '已找到')
+      : '构建环境尚未就绪 · 可先生成源码草稿';
+    const issues = Array.isArray(environment.issues) ? environment.issues : [];
+    $('environment-issues').replaceChildren(...issues.map(issue => element('li', safeMessage(issue.message || issue.code || issue))));
+    if (environment.ready === true) $('environment-issues').replaceChildren(element('li', '已找到本地 SDK 与所需游戏 / SMAPI 引用；此检查不代表游戏内验证。'));
+  } catch (error) {
+    buildEnvironment = null;
+    $('environment-summary').textContent = '构建环境检查未完成';
+    $('environment-issues').replaceChildren(element('li', safeMessage(error.message)));
+  } finally { environmentChecking = false; setBusy(busy); }
+}
+function renderJob(job) {
+  const label = jobLabels[job.status] || '正在读取任务状态';
+  $('job-progress').hidden = false;
+  $('job-badge').textContent = label;
+  $('job-status').textContent = label;
+  const calls = Number.isSafeInteger(job.modelCalls) ? job.modelCalls : 0;
+  const limit = Number.isSafeInteger(job.maxModelCalls) ? job.maxModelCalls : job.mode === 'source' ? 1 : 1 + Number(ui.repairs.value);
+  $('job-budget').textContent = '模型调用 ' + calls + ' / ' + limit;
+  $('job-events').replaceChildren(...(Array.isArray(job.events) ? job.events : []).slice(-80).map(event => {
+    const item = element('li');
+    item.append(element('span', event.stage || '状态'), element('p', safeMessage(event.message || '')));
+    return item;
+  }));
+  const attempts = Array.isArray(job.attempts) ? job.attempts : [];
+  $('job-diagnostics').hidden = !attempts.length;
+  $('job-attempts').replaceChildren(...attempts.slice(0, 3).map((attempt, index) => {
+    const group = element('section');
+    group.append(element('h4', '第 ' + (Number.isSafeInteger(attempt.attempt) ? attempt.attempt + 1 : index + 1) + ' 次编译 · ' + (attempt.status === 'passed' ? '通过' : attempt.status === 'blocked' ? '环境缺失' : attempt.status === 'cancelled' ? '已取消' : '未通过')));
+    const diagnostics = Array.isArray(attempt.diagnostics) ? attempt.diagnostics : [];
+    const list = element('ul');
+    for (const diagnostic of diagnostics.slice(0, 80)) {
+      const location = diagnostic.file ? diagnostic.file + (diagnostic.line ? ':' + diagnostic.line : '') : '';
+      list.append(element('li', [diagnostic.code, location, safeMessage(diagnostic.message || '')].filter(Boolean).join(' · ')));
+    }
+    if (!diagnostics.length) list.append(element('li', attempt.status === 'passed' ? '未报告编译错误。' : '未提供编译诊断。'));
+    group.append(list); return group;
+  }));
+  $('job-message').textContent = job.error ? safeMessage(job.error.message || job.error.code) : job.status === 'passed'
+    ? '源码已编译，尚未安装到游戏，也未验证角色、武器或招式的实际表现。'
+    : job.status === 'generated' ? '本次仅生成源码草稿，未运行编译、自动修复或游戏验收；尚不能作为可玩的 Mod 使用。'
+    : job.status === 'cancelled' ? '后续生成和修复已停止；已发出的模型请求可能已产生费用。' : '';
+  ui.cancel.hidden = terminalJobs.has(job.status);
+  ui.cancel.disabled = false;
+  stage(['compiling', 'repairing'].includes(job.status) ? 'static' : job.status === 'passed' ? 'game' : 'source', ['request', 'plan', ...(['compiling', 'repairing', 'passed'].includes(job.status) ? ['source'] : []), ...(job.status === 'passed' ? ['static'] : [])]);
+}
+function finishJob(job) {
+  stopPolling(); activeJobId = null;
+  try { if (job.project) renderProject(job.project, {aiGenerated: true}); }
+  catch (error) { showError(error); }
+  finally { setBusy(false); }
+  if (job.status === 'passed') announce('AI 源码生成与编译已通过，游戏内验收尚未执行。');
+  else if (job.status === 'generated') announce('AI 源码草稿已生成。本次未编译、未自动修复，也未进入游戏验证。');
+  else if (job.status === 'blocked') announce('流程停在环境检查；请补充列出的本地环境后重试。');
+  else if (job.status === 'cancelled') announce('任务已取消，未继续后续模型调用。');
+}
+async function pollJob(id, revision) {
+  if (id !== activeJobId || revision !== requestRevision) return;
+  try {
+    const job = await api('/api/jobs/' + id, undefined, 'GET');
+    if (id !== activeJobId || revision !== requestRevision) return;
+    renderJob(job);
+    if (terminalJobs.has(job.status)) { finishJob(job); return; }
+  } catch (error) {
+    if (id !== activeJobId || revision !== requestRevision) return;
+    $('job-message').textContent = '暂时无法读取本地任务状态，将自动重试。' + safeMessage(error.message);
+  }
+  pollTimer = setTimeout(() => pollJob(id, revision), 1000);
+}
+async function startPipeline(mode = 'build') {
+  if (busy || !serviceReady || !planId || !canGenerate(currentPlan)) return;
+  resetMessages();
+  if (!ui.key.value.trim() && !providerConfigured) { ui.settings.open = true; ui.key.focus(); showError(new Error('请在本地模型设置中填写 API Key 后再运行 AI 制作。')); return; }
+  const revision = requestRevision;
+  const targetPlanId = planId;
+  if (mode === 'build') {
+    setBusy(true, '正在检查构建环境…');
+    await refreshEnvironment();
+    if (revision !== requestRevision || targetPlanId !== planId) { setBusy(false); return; }
+    if (buildEnvironment?.ready !== true) { showError(new Error('本地构建环境尚未就绪；没有发起生成与编译流程。可先选择仅生成源码，或补充环境后重新检查。')); setBusy(false); return; }
+  }
+  resetJob(); resetProject(); setBusy(true, 'AI 流程正在运行…');
+  try {
+    const job = await api('/api/jobs', {planId: targetPlanId, provider: providerValues(), mode, maxRepairs: mode === 'source' ? 0 : Number(ui.repairs.value)});
+    if (!job.id || !/^[A-Za-z0-9_-]+$/.test(job.id)) throw new Error('未取得有效的任务 ID。');
+    if (revision !== requestRevision) { api('/api/jobs/' + job.id + '/cancel').catch(() => {}); return; }
+    activeJobId = job.id;
+    renderJob(job);
+    if (terminalJobs.has(job.status)) finishJob(job);
+    else pollTimer = setTimeout(() => pollJob(job.id, revision), 500);
+  } catch (error) { showError(error); setBusy(false); }
+}
 ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (busy || !serviceReady || !ui.form.reportValidity()) return;
   resetMessages();
   if (!ui.key.value.trim() && !providerConfigured) { ui.settings.open = true; ui.key.focus(); showError(new Error('请先填写 API Key，或使用下方不调用 AI 的示例工程。')); return; }
+  requestRevision++; resetJob();
   planId = null; currentPlan = null; resetProject();
   setBusy(true, '模型正在分析…'); stage('plan', ['request']);
   try {
@@ -220,6 +363,26 @@ ui.example.addEventListener('click', async () => {
   finally { setBusy(false); }
 });
 ui.generate.addEventListener('click', generateProject);
+ui.pipeline.addEventListener('click', () => startPipeline('build'));
+ui.sourceOnly.addEventListener('click', () => startPipeline('source'));
+ui.repairs.addEventListener('change', updateBudget);
+ui.refreshEnvironment.addEventListener('click', refreshEnvironment);
+ui.cancel.addEventListener('click', async () => {
+  if (!activeJobId) return;
+  const id = activeJobId, revision = requestRevision;
+  ui.cancel.disabled = true;
+  $('job-message').textContent = '正在停止任务；已发出的模型请求可能已产生费用。';
+  try {
+    const job = await api('/api/jobs/' + id + '/cancel');
+    if (id !== activeJobId || revision !== requestRevision) return;
+    renderJob(job);
+    if (terminalJobs.has(job.status)) finishJob(job);
+  } catch (error) {
+    if (id !== activeJobId || revision !== requestRevision) return;
+    ui.cancel.disabled = false;
+    $('job-message').textContent = '取消请求未确认，请保持页面连接并重试。' + safeMessage(error.message);
+  }
+});
 $('clear-key').addEventListener('click', () => { ui.key.value = ''; ui.key.focus(); });
 ui.download.addEventListener('click', event => { if (ui.download.getAttribute('aria-disabled') === 'true') event.preventDefault(); });
 for (const input of [ui.host, ui.source, ui.description]) input.addEventListener('input', () => { countDescription(); invalidatePlan(); });
@@ -230,11 +393,14 @@ for (const button of document.querySelectorAll('[data-example]')) button.addEven
 });
 async function initialize() {
   countDescription();
+  updateBudget();
   if (!isLocalOrigin) {
     $('connection-text').textContent = '公开界面预览';
     $('runtime-notice').replaceChildren(element('strong', '当前是公开预览页面'), element('p', '调用模型与生成工程请在本地运行 npm run dev。本页不会连接你的电脑，也不接收 API Key。'));
     $('form-note').textContent = '本地制作功能在下方“本地运行”说明中开启。';
     ui.settings.hidden = true;
+    $('environment-summary').textContent = '构建检查在本地工作台进行';
+    $('pipeline-hint').textContent = '公开网页不调用模型或编译源码。请在本地运行 npm run dev 后使用 AI 制作流程。';
     setBusy(false);
     return;
   }
@@ -253,6 +419,7 @@ async function initialize() {
     $('form-note').textContent = '调用模型会使用你所配置供应商的 API 额度。';
     if (providerConfigured) { $('api-key-hint').textContent = '本地环境已配置；可留空使用'; ui.key.placeholder = '留空使用本地环境中的密钥'; }
     setBusy(false);
+    await refreshEnvironment();
   } catch (error) {
     $('connection-text').textContent = '本地服务未就绪';
     $('runtime-notice').replaceChildren(element('strong', '尚未连接制作服务'), element('p', '请通过 npm run dev 启动完整本地服务，再刷新此页面。'));
@@ -260,4 +427,8 @@ async function initialize() {
     setBusy(false);
   }
 }
+window.addEventListener('beforeunload', () => {
+  if (!activeJobId || !serviceReady) return;
+  fetch('/api/jobs/' + activeJobId + '/cancel', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}', keepalive: true}).catch(() => {});
+});
 initialize();

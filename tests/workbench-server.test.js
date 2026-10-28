@@ -3,12 +3,22 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createWorkbenchServer } from '../src/workbench-server.mjs';
 import { createExamplePlan } from '../src/ai/plan.mjs';
+import { generateProject } from '../src/generator/smapi.mjs';
 
 async function fixture(options,run) {
   const server=createWorkbenchServer(options);server.listen(0,'127.0.0.1');await once(server,'listening');
   const base=`http://127.0.0.1:${server.address().port}`;
   const post=(route,data={},extra={})=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json',...extra},body:JSON.stringify(data)});
   try{await run({base,post});}finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+}
+async function finishJob(base,id) {
+  for(let index=0;index<100;index++) {
+    const response=await fetch(`${base}/api/jobs/${id}`);assert.equal(response.status,200);
+    const job=await response.json();
+    if(['generated','passed','failed','blocked','cancelled'].includes(job.status))return job;
+    await new Promise(resolve=>setTimeout(resolve,5));
+  }
+  throw new Error('Test job did not settle.');
 }
 test('example produces a genuine source ZIP with explicit non-AI and unbuilt provenance',async()=>{
   await fixture({},async({base,post})=>{
@@ -84,4 +94,48 @@ test('malformed generated file lists fail clearly and static validation precedes
       assert.ok(!Object.hasOwn(response,'downloadUrl'));
     });
   }
+});
+
+test('HTTP source-only jobs use a provider once and download the accepted source with honest build state',async()=>{
+  const secret='test-key-for-http-source';let calls=0;
+  const plan=createExamplePlan();
+  const source=generateProject(plan).files.find(file=>file.path==='ModEntry.cs');
+  await fixture({apiKey:secret,inspectEnvironment:async()=>({ready:false,dotnet:{available:true},game:{available:false},issues:[]}),pipelineDependencies:{generate:async()=>{calls++;return {files:[{...source,content:source.content+'\n// accepted test response\n'}],summary:'Simulated provider for the HTTP contract test.'};}}},async({base,post})=>{
+    const environment=await(await fetch(base+'/api/environment')).json();assert.equal(environment.ready,false);
+    const entry=await(await post('/api/example')).json();
+    const response=await post('/api/jobs',{planId:entry.id,mode:'source',maxRepairs:0});assert.equal(response.status,202);
+    const initial=await response.json();assert.ok(!JSON.stringify(initial).includes(secret));
+    const job=await finishJob(base,initial.id);
+    assert.equal(job.status,'generated');assert.equal(calls,1);assert.equal(job.report.build,'not_run');assert.equal(job.report.game,'not_run');
+    assert.equal(job.project.report.codeProvenance,'model');assert.equal(job.project.report.readyToInstall,false);
+    assert.ok(job.project.files.some(file=>file.path==='ModEntry.cs'&&file.content.includes('accepted test response')));
+    assert.ok(!JSON.stringify(job).includes(secret));
+    const download=await fetch(base+job.project.downloadUrl);assert.equal(download.status,200);assert.match(download.headers.get('content-disposition'),/mod-source.zip/);
+    const bytes=Buffer.from(await download.arrayBuffer());assert.ok(!bytes.includes(Buffer.from(secret)));
+    const invalid=await post('/api/jobs',{planId:entry.id,mode:'execute-game'});assert.equal(invalid.status,400);
+  });
+});
+
+test('HTTP build jobs stop on missing game environment without charging a code-generation call',async()=>{
+  let calls=0;
+  await fixture({apiKey:'test-key-for-blocked-build',inspectEnvironment:async()=>({ready:false,dotnet:{available:true,version:'10.0.403'},game:{available:false},issues:[{code:'GAME_PATH_REQUIRED',message:'Prepare game references.'}]}),pipelineDependencies:{generate:async()=>{calls++;throw new Error('Must not call model.');}}},async({base,post})=>{
+    const plan=await(await post('/api/example')).json();
+    const start=await post('/api/jobs',{planId:plan.id,mode:'build',maxRepairs:2});assert.equal(start.status,202);
+    const job=await finishJob(base,(await start.json()).id);
+    assert.equal(job.status,'blocked');assert.equal(job.modelCalls,0);assert.equal(calls,0);assert.equal(job.report.build,'not_run');assert.ok(!job.project);
+    assert.equal((await fetch(base+'/api/jobs/00000000-0000-0000-0000-000000000000')).status,404);
+    assert.equal((await post('/api/jobs',{planId:plan.id},{Origin:'https://untrusted.example'})).status,403);
+  });
+});
+
+test('request text containing either configured credential is rejected before a provider call',async()=>{
+  const environmentKey='test-environment-credential',transientKey='test-transient-credential';let calls=0;
+  await fixture({apiKey:environmentKey,planGenerator:async()=>{calls++;return createExamplePlan();}},async({post})=>{
+    for(const secret of [environmentKey,transientKey]) {
+      const response=await post('/api/plan',{request:{hostGame:'星露谷',sourceGame:'泰拉瑞亚',description:'Do not send this accidental key: '+secret},provider:{apiKey:transientKey}});
+      assert.equal(response.status,502);
+      const body=await response.text();assert.ok(!body.includes(environmentKey));assert.ok(!body.includes(transientKey));
+    }
+    assert.equal(calls,0);
+  });
 });

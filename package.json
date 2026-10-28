@@ -1,9 +1,9 @@
 {
   "name": "gamebridge",
-  "version": "0.3.0-alpha.1",
+  "version": "0.4.0-alpha.1",
   "private": true,
   "type": "module",
-  "description": "AI-assisted cross-game Mod planning and source project generation",
+  "description": "DeepSeek-assisted Mod generation, isolated compilation and bounded repair workflow",
   "engines": { "node": ">=24" },
   "scripts": {
     "test": "node --test",

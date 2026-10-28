@@ -18,7 +18,7 @@ export function validateProviderConfig({ apiKey, baseUrl = DEFAULT_BASE_URL, mod
   return { apiKey, baseUrl: url.origin, model };
 }
 const SYSTEM_PROMPT = `You plan native game mods for GameBridge. The host game is the game whose world the user plays in; the source game supplies requested interactions. Preserve this direction and every user request, including parts that cannot be generated. Return one JSON object, no Markdown.
-This is a source-draft generator, not proof of compilation or game compatibility. Local validation alone decides capability statuses. Never claim a connection, compiled DLL or in-game verification.
+This is a source-draft generator, not proof of compilation or game compatibility. Local validation alone decides capability statuses. Never claim a connection, compiled DLL or in-game verification. Write titles, summaries, requirement descriptions and limitations in the language of the user's description.
 Current host generator: stardew-valley (SMAPI source project draft only). Current mechanics are speed_burst and melee_modifier. Any other host or feature needs a new adapter. Character, weapon and animation assets require licensed user-provided resources; do not invent or claim to have extracted them. Never suggest process injection, memory writes, anti-cheat evasion, or automatic online competitive modifications.
 Required JSON schema:
 {"schemaVersion":1,"title":"short title","hostGame":"same host ID as input","sourceGame":"same source ID as input","summary":"what is requested and what is missing","requirements":[{"id":"req-1","description":"one user requirement","capability":"speed_burst or melee_modifier or a descriptive snake_case capability","status":"needs_adapter","reason":"proposed explanation"}],"mechanics":[{"type":"speed_burst","key":"V","durationTicks":120,"cooldownTicks":300,"amount":2}],"assetRequirements":[],"limitations":[]}
@@ -35,7 +35,8 @@ export function buildProviderRequest(rawRequest, config) {
       body: JSON.stringify({ model: settings.model, messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: JSON.stringify(request) },
-      ], response_format: { type: 'json_object' }, max_tokens: 4000, stream: false }),
+      ], response_format: { type: 'json_object' }, max_tokens: 4000, stream: false,
+        ...(settings.baseUrl === DEFAULT_BASE_URL ? { thinking: { type: 'disabled' } } : {}) }),
       redirect: 'error',
     }, request,
   };
@@ -75,10 +76,21 @@ function abortRace(signal) {
   return { promise, dispose: () => signal.removeEventListener('abort', handler) };
 }
 
-export async function generatePlan(rawRequest, { apiKey, baseUrl = DEFAULT_BASE_URL, model = 'deepseek-flash', fetchImpl = fetch, signal } = {}) {
-  const call = buildProviderRequest(rawRequest, { apiKey, baseUrl, model });
+/** A single bounded JSON completion. Does not retry or retain provider responses. */
+export async function requestJsonCompletion(messages, { apiKey, baseUrl = DEFAULT_BASE_URL, model = 'deepseek-flash', fetchImpl = fetch, signal, maxTokens = 4000, timeoutMs = TIMEOUT_MS } = {}) {
+  const settings = validateProviderConfig({ apiKey, baseUrl, model });
+  if (!Array.isArray(messages) || messages.length < 2 || messages.length > 4 ||
+      messages.some(message => !message || !['system', 'user'].includes(message.role) || typeof message.content !== 'string' || !message.content.trim()) ||
+      Buffer.byteLength(JSON.stringify(messages), 'utf8') > 128 * 1024 || !Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 8192 ||
+      !Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) invalid('Invalid JSON completion input.');
+  if (JSON.stringify(messages).includes(JSON.stringify(apiKey).slice(1, -1))) throw new ProviderError('CREDENTIAL_IN_REQUEST', 'Request contained a credential and was discarded.');
+  const call = { url: `${settings.baseUrl}/chat/completions`, options: {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({ model: settings.model, messages, response_format: { type: 'json_object' }, max_tokens: maxTokens, stream: false,
+      ...(settings.baseUrl === DEFAULT_BASE_URL ? { thinking: { type: 'disabled' } } : {}) }), redirect: 'error',
+  } };
   if (typeof fetchImpl !== 'function') invalid('Invalid provider transport.');
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const abort = abortRace(combined);
   try {
@@ -99,15 +111,12 @@ export async function generatePlan(rawRequest, { apiKey, baseUrl = DEFAULT_BASE_
       let proposal;
       try { proposal = JSON.parse(choice.message.content); }
       catch { throw new ProviderError('INVALID_PLAN', 'Provider returned an invalid JSON plan.'); }
-      let plan;
-      try { plan = validatePlan(proposal, call.request); }
-      catch { throw new ProviderError('INVALID_PLAN', 'Provider plan failed local schema or capability checks.'); }
       // Successful completions are untrusted too: never retain an echoed credential
       // in a plan, source file or download. Match JSON's escaping of punctuation.
-      if (JSON.stringify(plan).includes(JSON.stringify(apiKey).slice(1, -1))) {
-        throw new ProviderError('CREDENTIAL_IN_RESPONSE', 'Provider plan contained a credential and was discarded.');
+      if (JSON.stringify(proposal).includes(JSON.stringify(apiKey).slice(1, -1))) {
+        throw new ProviderError('CREDENTIAL_IN_RESPONSE', 'Provider result contained a credential and was discarded.');
       }
-      return plan;
+      return proposal;
     })();
     return await Promise.race([operation, abort.promise]);
   } catch (error) {
@@ -119,4 +128,11 @@ export async function generatePlan(rawRequest, { apiKey, baseUrl = DEFAULT_BASE_
     // Fetch exceptions may include credentials or URLs; never propagate their text.
     throw new ProviderError('PROVIDER_NETWORK', 'Could not reach the configured model provider.');
   } finally { abort.dispose(); }
+}
+
+export async function generatePlan(rawRequest, options = {}) {
+  const call = buildProviderRequest(rawRequest, options);
+  const proposal = await requestJsonCompletion(JSON.parse(call.options.body).messages, options);
+  try { return validatePlan(proposal, call.request); }
+  catch (error) { throw new ProviderError('INVALID_PLAN', `Provider plan failed local checks: ${error.message}`); }
 }

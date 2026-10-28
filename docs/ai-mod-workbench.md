@@ -1,111 +1,125 @@
 # GameBridge：自动化 AI Mod 制作工具
 
-版本：0.3 Alpha · 2026-10-28（Asia/Shanghai）。本文是当前产品、实现与后续计划的主入口。
+版本：0.4 Alpha · 2026-10-28（Asia/Shanghai）。本文是当前产品与实现的主入口。
 
-## 1. 用户要的产品
+## 1. 产品目标与当前范围
 
-用户提出“在 A 游戏框架里玩 B 游戏的动作交互”，工具根据需求调用模型、分析宿主接口、制作插件或 Mod，并验证其行为。**A 是宿主，B 是玩法来源**。代码统一使用 `hostGame` 与 `sourceGame`，避免与旧设计相反的字母方向混淆。
+用户提出“在 A 游戏框架里玩 B 游戏的动作交互”，工具调用模型、分析宿主接口与资源、生成 Mod、编译修复并最终验收。A 是宿主，B 是玩法来源，代码统一使用 `hostGame` / `sourceGame`。
 
-例子包括“在星露谷物语里体验泰拉瑞亚的战斗与交互”“在 GTA 里体验 CS 的武器和操作”。它们是产品意图，不是已经实现的兼容组合。此前的建筑转换器和 Glitch/Repixture 原型已从当前开发源码移除，未将后者提交为成果。
+“星露谷里玩泰拉瑞亚”“GTA 里玩 CS”是产品意图。当前仅有 SMAPI 宿主适配器，受支持的生成子集是短时速度 Buff 和近战倍率；完整角色、武器、动画、招式、冲刺控制器以及其他宿主继续列为缺口。模型不能宣布这些已实现，也不能把原始需求悄悄替换成两个 Buff。
 
-核心产品是一个制作工具，不是新造一个小游戏，也不只是交付一个由开发者手写的固定 Mod。
+此前被拒绝的建筑转换器与 Glitch/Repixture 原型不在当前源码和主线中。
 
-## 2. 完整目标流程
+## 2. 当前工作流
 
 ```text
-用户描述宿主、玩法来源及体验
-                 ↓
-模型拆解：角色 / 武器 / 动作 / 交互 / 资源 / 约束
-                 ↓
-宿主适配档案与能力检查：已知接口 / 版本 / 资产 / 缺口
-                 ↓
-Mod 计划及逐项覆盖报告
-                 ↓
-生成源码、配置、资源映射与工程
-                 ↓
-静态校验 → 构建 → 根据错误修复 → 宿主内验证
-                 ↓
-可审阅产物、安装/回滚说明与精确兼容记录
+宿主、玩法来源、完整需求
+        ↓ DeepSeek JSON 请求（真实接口）
+本地校验计划：方向、参数、原始请求与缺口
+        ↓
+        ├─ AI 生成源码：一次调用 → 受限 C# 检查 → 未编译 ZIP
+        │
+        └─ AI 生成并编译：先检查 SDK 和真实游戏引用
+                       ↓ 环境就绪才收费生成
+                  模型生成 ModEntry.cs
+                       ↓ 固定工程隔离编译
+                       ├─ 通过 → 工程 + 自有 DLL/PDB + 报告
+                       ├─ C# 源码错误 → 模型修复 → 重编译（最多两次修复）
+                       └─ 缺引用 / SDK / NuGet / 超时等 → 停止，报告环境问题
+
+构建产物仍需另行在游戏中验收，当前不执行或自动安装 DLL。
 ```
 
-模型不能单凭描述宣布支持某款游戏。每个要求都需要保留；缺少接口、资源或实现时停在对应阶段，不能把完整角色与招式要求悄悄换成一个加速 Buff。
+分析、代码生成、有限源码检查、C# 编译和游戏验收分别记录。`staticValidation` 只代表有限的代码策略检查；不是沙箱、语义覆盖证明或可玩证明。构建通过也始终保持 `game=not_run`、`readyToInstall=false`。
 
-## 3. 本版本实际实现
+## 3. 本轮真实验收
 
-| 部分 | 已实现 | 尚未实现 |
-| --- | --- | --- |
-| 制作界面 | 宿主/来源/需求输入、模型设置、逐项计划、文件预览与下载 | 桌面游戏扫描、真实会话与安装管理 |
-| 模型层 | 单次 Chat Completions JSON 请求、可配置模型/云端原点、超时/取消、响应限制与错误脱敏 | 多模型路由、检索代理、长时自动研发和构建修复循环 |
-| 需求计划 | 本地 schema、原始需求保留、能力与资源缺口、方向检查 | 自动证明所有自然语言语义已被覆盖 |
-| 工程生成 | 固定 SMAPI C# 源码模板、参数校验、配置、清单、报告与 ZIP | 任意宿主代码生成、完整角色/武器/动作转换 |
-| 验证 | 参数/路径/产物与网络契约测试、源码生成器静态约束检查 | C# 编译、游戏 DLL 引用检查、游戏内加载及玩法验收 |
+已用用户在本机配置的 DeepSeek Key 实际完成需求分析和 `ModEntry.cs` 生成。还使用真实 SDK 的 Roslyn 对生成源码进行语法解析，注入缺分号错误取得 `CS1002`，把诊断交给真实 DeepSeek 修复，重新解析后无语法错误。
 
-模型请求代码是真实接口实现，但没有用户 API Key，本轮只使用模拟响应做自动化测试，未实际调用云端。固定示例会标注“未调用 AI”，不会冒充 DeepSeek 生成。
+这是受控语法故障验收；没有解析游戏类型或引用，**不是 Mod 编译成功**。编译调度、预算、失败、修复和取消分支使用明确标注的模拟编译器做契约测试；SDK 子进程另有真实普通 .NET 编译测试。用户已说明暂时没有游戏环境，真实 Mod 编译和游戏实测仍待验收。[验收记录](deepseek-pipeline-acceptance.md)
 
-## 4. 当前生成能力及语义边界
+## 4. DeepSeek 接入与额度
 
-首个工程生成器面向 Stardew Valley 的 SMAPI，输出源码草稿。目标环境固定为 Stardew Valley 1.6.14+、SMAPI 4.5.2+、.NET 6；ModBuildConfig 包固定 4.4.0。没有本机游戏和程序集就不能验证构建，更不能声明可玩。
+默认 HTTPS 原点 `https://api.deepseek.com`，请求 `/chat/completions`，模型默认 `deepseek-flash`。模型名称可改；目前其他供应商也须使用同样的根路径和 JSON Chat Completions 形状，否则需增加适配器。[官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)
 
-| 机制 | 模板行为 | 不能据此宣称 |
-| --- | --- | --- |
-| `speed_burst` | 按键施加有限时长的宿主速度 Buff | 已移植泰拉瑞亚冲刺、空中控制、碰撞或无敌窗口 |
-| `melee_modifier` | 持近战工具时施加短时攻击倍率 Buff，切换工具/菜单等时清除自己的效果 | 已迁移某把武器、招式动画、攻击判定或组合技 |
+请求明确要求 JSON，并设置 `response_format: {"type":"json_object"}`。DeepSeek 请求关闭 thinking，减少结构化结果的额外推理预算。计划上限 4000 输出 tokens；代码生成/修复上限 8192；响应限 256 KiB。分析截止 45 秒，代码生成/修复截止 120 秒。空响应、截断、不合法结构、凭据回显或超限会失败，不静默接受。[JSON 输出说明](https://api-docs.deepseek.com/guides/json_mode/)
 
-按键为单个 A–Z；速度加成整数 1–6，近战倍率 1–3，时长 1–600 ticks，冷却不少于时长且不超过 3600 ticks。重复类型和冲突按键拒绝。生成配置默认 `Enabled=false`，工程关闭自动部署。
+一次分析单独计费。源码模式最多一次代码模型调用；编译模式一次生成加 0–2 次修复，默认一次修复。界面显示次数上限与已尝试调用数；这不是供应商实际 token 账单。网络、认证或额度错误不自动重试。取消阻止后续工作并尝试中止当前请求，已经发出的请求仍可能计费。
 
-模型提出的角色模型、动作资源、武器美术或未知能力保持为未实现项。宿主没有生成器时返回 `needs_adapter`，不提供假的可安装插件。GTA/CS 目前属于这种情况。
+完整构建模式在生成前检查环境，缺少 SDK 或游戏引用时为 `blocked`，代码模型调用数为 0。仅 C# 源码错误可以触发修复；缺程序集等 C# 环境错误同样不可修复。重复源码或重复编译错误会提前停止。
 
-## 5. 模型接入与本地数据
+## 5. 源码、编译器与数据边界
 
-默认采用 DeepSeek 的 HTTPS 原点 `https://api.deepseek.com`，请求 `/chat/completions`。模型字段默认 `deepseek-flash`，可改为账号支持的型号。当前传输支持同样的根路径接口；例如使用 `/v1`、Anthropic 或其他 API 形状的服务，需要新增供应商适配。[DeepSeek 官方接入](https://api-docs.deepseek.com/)
+模型仅能返回 `ModEntry.cs` 和简要说明。项目、NuGet 依赖、配置、清单、路径和其他文件由本地固定生成器控制。`ModConfig.cs`、`config.json` 的 `Enabled=false` 以及工程构建参数不可由模型修改。
 
-请求使用 `response_format: {"type":"json_object"}`，提示包含 JSON 结构示例；服务仍会校验空响应、截断、格式、范围和方向，不把 JSON 有效等同于计划正确。[DeepSeek JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)
+本地先检查文件数量/大小、入口、配置门控和越界能力；编译器独立复验。文本策略拒绝常见进程、文件、网络、反射、动态加载、原生调用和 Harmony 等调用，但不等于执行隔离或行为证明。当前不运行生成 DLL。
 
-本地服务仅监听 127.0.0.1。API Key 可在当前表单输入，或由被 Git 忽略的 `.env` 读取；表单不会写入 localStorage/sessionStorage。只在用户点击分析后，发送需求文本和内置能力说明，不读取或上传游戏资产、存档和本机目录。
+编译器使用临时目录、固定项目和 nuget.org 源，关闭用户 Directory.Build 导入、自动部署、打包、调试、Harmony、共享编译服务和分析器。子进程不继承 API Key 或其他应用凭据。三分钟截止、64 KiB 日志、20 MiB 自有 DLL/PDB 上限；完成后清理临时目录。NuGet 缓存在被忽略的 `.tools/build-cache/`。编译只读取明确配置的游戏引用，不把游戏程序集或资源装入 ZIP。
 
-任务与生成 ZIP 保存在进程内存，每类最多 16 项，1 小时后不可访问，重启服务后清空。下载包记录 `model` 或 `example` 来源，但不记录密钥。公共 GitHub Pages 禁用制作与密钥输入，不尝试访问用户本机服务。
+云端接收需求、计划、两份自有 C# 源码上下文与去路径的 C# 诊断，不读取游戏资产、存档或任意目录。模型不能输出 shell 命令或新增依赖。游戏文件、Key 与验收生成物不进入公开仓库。
 
-## 6. 工程产物
+Key 可来自被忽略的 `.env` 或当前表单，不保存到浏览器存储、任务公开状态、日志或下载包；成功响应和错误都检查凭据回显。任务最多 8 项、计划/工程各 16 项，终态或产物一小时后不可访问；运行中凭据仅在内存闭包中使用。源码包最多 2 MiB，编译包最多 22 MiB，工程归档内存总计最多 64 MiB。
 
-生成文件包括固定 `.csproj`、`manifest.json`、`ModEntry.cs`、配置类和配置 JSON、完整 `plan.json`、`validation-report.json`、`generation.json` 和 README。固定项目引用与文件路径由本地生成器控制，模型不能提供任意 shell 命令、MSBuild 目标或依赖地址。
-
-`generation.json` 明确本次是否真正调用模型；报告中的 `build`、`game` 当前始终为 `not_run`，`readyToInstall=false`。源码静态检查只说明生成规则和文件契约成立，不证明 C# API 正确、行为等价、素材齐全或可在游戏中加载。
-
-模板使用 SMAPI 输入、更新、保存和换图事件，在宿主内通过有命名空间的短时 Buff 表达机制；不修改用户原始游戏文件，不使用 Harmony、进程注入、内存修改或反作弊规避。多人和在线竞技不在当前范围。
-
-接口依据：[SMAPI 入门](https://wiki.stardewvalley.net/Modding:Modder_Guide/Get_Started)、[事件 API](https://wiki.stardewvalley.net/Modding:Modder_Guide/APIs/Events)、[Buff API](https://wiki.stardewvalley.net/Modding:Buffs)、[固定构建包](https://www.nuget.org/packages/Pathoschild.Stardew.ModBuildConfig/4.4.0)。
-
-## 7. 本地使用
+## 6. 本地准备与使用
 
 ```sh
 npm test
 npm run dev
 ```
 
-打开 `http://127.0.0.1:4173`。输入“在哪个游戏里玩”“带入哪个游戏的玩法”和具体要求；填写模型配置后点击分析。检查完整需求、缺口和素材列表，再选择生成受支持的源码草稿。
+打开 `http://127.0.0.1:4173`。将 `.env.example` 复制为本地 `.env`，配置后重启服务：
 
-无凭据可用“查看示例工程”验证本地生成与下载流程。它仅演示固定 SMAPI 模板，不代表某款游戏已经接通。下载 ZIP 后按 README 准备游戏、SMAPI 和 .NET 引用；当前工作台没有自动构建、安装或启动功能。
+```dotenv
+DEEPSEEK_API_KEY=在本地填写
+GAMEBRIDGE_API_BASE=https://api.deepseek.com
+GAMEBRIDGE_MODEL=deepseek-flash
+GAMEBRIDGE_GAME_PATH=/your/local/Stardew Valley
+# 可选绝对路径；也会探测 .tools/dotnet 与 PATH
+GAMEBRIDGE_DOTNET_PATH=
+```
 
-## 8. API 与阶段
+仅 AI 生成源码不需要游戏环境。完整编译需要可运行的 .NET SDK 8+（推荐 10 LTS），Stardew Valley 1.6.14+ / SMAPI 4.5.2+，工程以 `net6.0` 为目标，ModBuildConfig 固定 4.4.0。SDK 与目标框架是不同概念；本轮本机 SDK 为 10.0.403。[Mod 开发环境](https://wiki.stardewvalley.net/Modding:Modder_Guide/Get_Started)
+
+`GAMEBRIDGE_GAME_PATH` 指向程序集目录（macOS 的 Steam 安装通常在游戏目录的 `Contents/MacOS` 中），要求以下真实文件；清单核对了固定 [ModBuildConfig 4.4.0 包](https://www.nuget.org/packages/Pathoschild.Stardew.ModBuildConfig/4.4.0) 的构建目标：
+
+- `Stardew Valley.dll`
+- `StardewValley.GameData.dll`
+- `MonoGame.Framework.dll`
+- `xTile.dll`
+- `StardewModdingAPI.dll`
+- `smapi-internal/SMAPI.Toolkit.CoreInterfaces.dll`
+
+检查存在和 PE 文件结构不证明版本或游戏兼容，`versionValidated=false`。未知/缺失引用明确阻断，不能用测试桩替代真实游戏程序集。
+
+检查分析结果中的缺口后，选择 AI 源码或完整编译模式，并在需要时选择修复上限。任务界面显示阶段、诊断、尝试与模型调用数；可取消。失败仍保留此前通过本地筛查的源码和报告，非法初始响应不会被替换成一个冒称 AI 生成的固定模板。
+
+## 7. 产物与状态
+
+源码 ZIP 包含固定工程、清单、`ModEntry.cs`、配置、完整 `plan.json`、本次 README、`validation-report.json` 和 `generation.json`。真实编译通过后，增加本次产生的自有 DLL/PDB；不包含游戏 DLL。
+
+报告分别记录 `planProvenance` / `codeProvenance`、模型调用次数、构建尝试、缺口、`build` 和 `game`。示例计划可以用于测试模型代码生成，但会同时标明“计划来自示例、代码来自模型”。编译成功不改写需求覆盖结果。
+
+API：
 
 | 接口 | 作用 |
 | --- | --- |
-| `GET /api/config` | 本地服务状态和默认供应商，不返回 Key |
-| `POST /api/plan` | 将明确请求发给用户配置的模型，返回经过本地校验的计划 |
-| `POST /api/example` | 返回固定的非 AI 示例计划 |
-| `POST /api/projects` | 按计划 ID 生成固定模板工程与静态报告 |
-| `GET /api/projects/:id/download` | 下载实际源码 ZIP |
+| `GET /api/config` | 本地状态和默认供应商，不返回 Key |
+| `GET /api/environment` | SDK、游戏引用、缺失项和版本未验收提示 |
+| `POST /api/plan` | 真实模型需求分析并本地校验 |
+| `POST /api/example` | 固定非 AI 示例计划 |
+| `POST /api/projects` | 固定模板源码生成 |
+| `POST /api/jobs` | 以 planId 启动 `source` 或 `build` 任务、指定 0–2 次修复 |
+| `GET /api/jobs/:id` | 状态、事件、诊断、调用数与最终工程 |
+| `POST /api/jobs/:id/cancel` | 取消任务和后续模型调用 |
+| `GET /api/projects/:id/download` | 下载实际源码或编译 ZIP |
 
-后端校验 Host/Origin、JSON 类型及请求大小；云端响应不超过 256 KiB，单次请求截止 45 秒，同时最多两个模型任务。网络错误不回显供应商原始响应或 Key。不自动重试收费调用。
+本地服务仅监听 127.0.0.1，检查 Host/Origin、JSON 类型与 96 KiB 请求上限；完整制作任务一次运行一个，避免并发超出预算。公开 GitHub Pages 禁用制作与 Key 设置，不连接用户本机。main 推送经过测试和构建后更新网页；网页部署不等于 Mod 已更新或游戏已接入。
 
-当前完成状态仅有 `plan_validated` 和 `static_checked`；后续应补 `build_passed`、`game_verified` 和精确游戏版本证据。示例与真实模型调用的 `provenance` 始终分开。
+## 8. 下一步验收与扩展
 
-## 9. 下一步实现顺序
+1. 用户准备星露谷/SMAPI 后，运行真正的源码生成→游戏引用编译→错误修复→DLL产出，核查固定包与 API 版本。
+2. 在独立单人测试存档中验证加载、输入、时长、冷却、武器切换、菜单、保存、换图和清理；记录版本与日志，才可增加游戏验收状态。
+3. 开发真正的角色、武器和招式适配器，保留资产授权、碰撞、状态机、动作时序与特征损失记录。
+4. 扩展宿主和模型工具能力；每种宿主/来源组合分别验证，不能只添加游戏名称就宣布通用支持。
 
-1. **真实模型验收**：用户在本地提供 Key 后，核查实际需求解析、计费调用、错误与计划保留，不以 mock 测试替代。
-2. **宿主构建环境**：确定首个实际要运行的宿主及版本，准备游戏与接口程序集，完成源码编译和日志回传。
-3. **首个真实交互模块**：明确用户要迁移的具体角色、武器或招式，取得有权使用的资源，开发对应适配器并逐项实机验收。
-4. **自动修复循环**：把编译/实机错误转成可审阅反馈，限制尝试次数和调用预算，再由模型修复草稿；成功后重跑回归。
-5. **更多宿主与制作能力**：增加版本化适配档案、资源转换工具和测试探针，逐款验证；不能只向下拉框加名字就称已支持。
-
-未来可按需要选择原生 Mod 移植或双运行时桥接。旧三份文档仅记录可选底层思路，自动化工具的范围、术语和交付阶段以本文为准。第一条真实可玩的游戏串联链路仍是待完成目标，不能用这个工作台的源码生成验收来替代。
+使用官方或获允许的 Mod/编辑接口；不实现进程注入、内存修改或反作弊规避，不承诺零封禁。第一条完整真实可玩的串联链路仍未完成。

@@ -21,8 +21,8 @@
         <li data-stage="request" class="is-current"><span>01</span><div>描述体验<small>宿主、玩法来源与目标</small></div></li>
         <li data-stage="plan"><span>02</span><div>拆解与规划<small>模型分析能力与缺口</small></div></li>
         <li data-stage="source"><span>03</span><div>生成源码<small>创建宿主 Mod 工程</small></div></li>
-        <li data-stage="static"><span>04</span><div>静态检查<small>检查工程与生成范围</small></div></li>
-        <li data-stage="game"><span>05</span><div>构建与实机<small>需要对应游戏环境</small></div></li>
+        <li data-stage="static"><span>04</span><div>编译与修复<small>使用编译诊断迭代源码</small></div></li>
+        <li data-stage="game"><span>05</span><div>游戏验收<small>单独记录真实游戏表现</small></div></li>
       </ol>
       <div class="sidebar-note"><span aria-hidden="true">↳</span><strong>由模型规划，由证据确认</strong><p>源码生成、构建通过和游戏实测分别记录。</p><a href="./docs/ai-mod-workbench.md">查看使用说明 ↗</a></div>
       <div class="sidebar-footer"><span>DEVELOPMENT PREVIEW</span><span>AI WORKBENCH</span></div>
@@ -57,12 +57,23 @@
           <div class="panel plan-panel">
             <div class="panel-heading"><div><span class="section-number">02</span><h2>制作计划</h2></div><span class="result-badge" id="plan-badge">等待需求</span></div>
             <div class="empty-plan" id="empty-plan"><div class="empty-diagram" aria-hidden="true"><span>A</span><i>←</i><b>✳</b><i>←</i><span>B</span></div><h3>先让想法变得可执行。</h3><p>分析宿主接口、拆解动作与资源依赖，再生成对应的 Mod 工程。</p><div class="empty-checks"><span>需求逐项拆解</span><span>能力与资源检查</span><span>未实现项可追踪</span></div></div>
-            <div id="plan-content" hidden><div class="plan-title-row"><h3 id="plan-title"></h3><span class="origin-badge" id="plan-origin"></span></div><p class="plan-summary" id="plan-summary"></p><div class="scope-counts" id="scope-counts"></div><div class="requirements-heading"><strong>需求与接入能力</strong><span>生成范围逐项确认</span></div><ul class="requirements" id="requirements"></ul><div class="supporting-list" id="assets-section" hidden><h4>还需要的素材</h4><ul id="asset-requirements"></ul></div><div class="supporting-list" id="limitations-section" hidden><h4>限制与待完成项</h4><ul id="plan-limitations"></ul></div><details class="mechanics-details"><summary>查看计划参数</summary><pre id="plan-parameters"></pre></details><div class="generate-row"><p id="generation-hint">计划需要本地校验后才能生成工程。</p><button id="generate-button" class="primary-button compact" type="button" disabled>生成源码草稿 <span aria-hidden="true">↗</span></button></div></div>
+            <div id="plan-content" hidden><div class="plan-title-row"><h3 id="plan-title"></h3><span class="origin-badge" id="plan-origin"></span></div><p class="plan-summary" id="plan-summary"></p><div class="scope-counts" id="scope-counts"></div><div class="requirements-heading"><strong>需求与接入能力</strong><span>生成范围逐项确认</span></div><ul class="requirements" id="requirements"></ul><div class="supporting-list" id="assets-section" hidden><h4>还需要的素材</h4><ul id="asset-requirements"></ul></div><div class="supporting-list" id="limitations-section" hidden><h4>限制与待完成项</h4><ul id="plan-limitations"></ul></div><details class="mechanics-details"><summary>查看计划参数</summary><pre id="plan-parameters"></pre></details><div class="generate-row"><p id="generation-hint">计划需要本地校验后才能生成工程。</p><button id="generate-button" class="primary-button compact" type="button" disabled>生成固定模板草稿 <span aria-hidden="true">↗</span></button></div></div>
           </div>
+          <section class="panel pipeline-panel" aria-labelledby="pipeline-title">
+            <div class="panel-heading"><div><span class="section-number">03</span><h2 id="pipeline-title">AI 生成与编译</h2></div><span class="result-badge" id="job-badge">等待计划</span></div>
+            <p class="pipeline-intro">可先让模型生成 C# 源码草稿；准备游戏环境后再编译，并根据编译诊断自动修复。未实现的角色、武器和动作需求会继续保留。</p>
+            <div class="source-only-action"><button class="secondary-button" id="source-start" type="button" disabled>AI 生成源码（付费，不编译）</button><p>最多 1 次模型调用，需求分析另计；无需安装游戏。产物是源码草稿，未编译、未修复、未实机验收。</p></div>
+            <div class="environment-card"><div class="environment-heading"><strong id="environment-summary">本地构建环境待检查</strong><button id="refresh-environment" type="button" disabled>检查环境</button></div><ul id="environment-issues"></ul><p id="environment-guide">编译需要 .NET SDK、星露谷与 SMAPI。通过本地 .env 的 GAMEBRIDGE_GAME_PATH 指定安装目录；DEEPSEEK_API_KEY 可在 .env 或模型设置中配置。</p></div>
+            <div class="repair-budget"><label for="repair-limit">自动修复上限</label><select id="repair-limit" disabled><option value="0">不修复 · 最多 1 次模型调用</option><option value="1" selected>修复 1 次 · 最多 2 次模型调用</option><option value="2">修复 2 次 · 最多 3 次模型调用</option></select></div>
+            <p class="pipeline-cost" id="pipeline-cost">本次最多调用模型 2 次（1 次生成 + 1 次修复）；需求分析的调用另计。仅编译错误触发修复。</p>
+            <button class="primary-button" id="pipeline-start" type="button" disabled>AI 生成并编译（付费） <span aria-hidden="true">→</span></button>
+            <p class="pipeline-hint" id="pipeline-hint">先分析需求。仅生成源码不需要游戏环境；生成并编译流程会先检查环境，缺失时不发起收费代码生成。</p>
+            <div class="job-progress" id="job-progress" hidden aria-live="polite"><div class="job-heading"><strong id="job-status">等待任务</strong><span id="job-budget">0 次模型调用</span></div><ol id="job-events"></ol><details id="job-diagnostics"><summary>编译与修复记录</summary><div id="job-attempts"></div></details><p id="job-message"></p><button id="cancel-job" class="secondary-button" type="button" hidden>取消任务</button></div>
+          </section>
           <div class="status-message error" id="error-message" role="alert" hidden></div>
           <div class="status-message success" id="action-message" role="status" aria-live="polite" hidden></div>
           <div class="panel project-panel" id="project-panel">
-            <div class="panel-heading"><div><span class="section-number">03</span><h2>工程与验证</h2></div><span class="small-label" id="file-count">NO FILES</span></div>
+            <div class="panel-heading"><div><span class="section-number">04</span><h2>工程与验证</h2></div><span class="small-label" id="file-count">NO FILES</span></div>
             <div class="validation-strip" aria-label="工程验证阶段"><div><span id="source-state" class="state-dot"></span><strong>源码工程</strong><small id="source-status">尚未生成</small></div><div><span id="static-state" class="state-dot"></span><strong>静态检查</strong><small id="static-status">待生成后检查</small></div><div><span class="state-dot"></span><strong>构建 / 实机</strong><small id="game-status">尚未验证</small></div></div>
             <div class="file-browser"><nav id="file-list" aria-label="工程文件列表"><p>生成的文件将在这里显示。</p></nav><div class="source-pane"><div class="source-toolbar"><span id="active-filename">等待工程文件</span><span>SOURCE PREVIEW</span></div><pre><code id="source-preview">描述需求并分析后，可以创建可下载的 Mod 源码工程。</code></pre></div></div>
             <div class="project-footer"><div><strong id="project-status">等待制作计划</strong><p id="project-note">生成源码与静态检查不代表 Mod 已经可以在游戏内运行。</p></div><a id="download-button" class="download-button is-disabled" aria-disabled="true" tabindex="-1"><span aria-hidden="true">↓</span> 下载源码工程</a></div>
@@ -71,7 +82,7 @@
       </div>
       <section class="local-guide" id="local-guide" aria-labelledby="local-guide-title"><div><p class="eyebrow">RUN LOCALLY</p><h2 id="local-guide-title">制作发生在你的设备上。</h2><p>克隆项目并运行本地服务，在工作台中配置模型。公开网页用于预览与阅读说明，不接收 API Key。</p></div><div class="terminal-card"><span><i></i><i></i><i></i><small>TERMINAL</small></span><pre>git clone https://github.com/Loganwon/gamebridge.git
 cd gamebridge
-npm run dev</pre><p>需要 Node.js 24+ · 打开终端显示的本地网址</p></div></section>
+npm run dev</pre><p>需要 Node.js 24+ · 打开终端显示的本地网址</p><p>编译需 .NET SDK 与安装 SMAPI 的星露谷，游戏目录通过 .env 配置。</p></div></section>
       <footer class="main-footer"><span>GameBridge <small>把想法变成可验证的 Mod 工程</small></span><div><a href="./docs/ai-mod-workbench.md">使用说明 ↗</a><a href="https://github.com/Loganwon/gamebridge">源码与进度 ↗</a></div></footer>
     </main>
   </div>

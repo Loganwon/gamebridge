@@ -21,6 +21,7 @@ test('provider sends one compatible JSON request and returns only locally valida
     assert.equal(body.model, 'deepseek-flash');
     assert.deepEqual(body.response_format, { type: 'json_object' });
     assert.equal(body.stream, false);
+    assert.deepEqual(body.thinking, { type: 'disabled' });
     assert.ok(body.max_tokens > 0 && body.max_tokens <= 4000);
     assert.match(body.messages[0].content, /JSON/);
     assert.deepEqual(JSON.parse(body.messages[1].content), request);
@@ -78,7 +79,7 @@ test('provider rejects malformed envelopes, incomplete completions and empty con
 });
 
 test('malformed, wrong-direction and unbounded model plans never reach generation', async () => {
-  for (const mutate of [raw => { raw.hostGame = 'terraria'; }, raw => { raw.mechanics[0].amount = 999; }, raw => { raw.code = KEY; }]) {
+  for (const mutate of [raw => { raw.hostGame = 'terraria'; }, raw => { raw.mechanics[0].amount = 999; }, raw => { raw.code = 'unrecognized executable field'; }]) {
     const raw = plan(); mutate(raw);
     await assert.rejects(generatePlan(request, { apiKey: KEY, fetchImpl: async () => completion(raw) }), error => {
       assert.equal(error.code, 'INVALID_PLAN'); assert.ok(!String(error).includes(KEY)); return true;

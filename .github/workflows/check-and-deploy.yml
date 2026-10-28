@@ -25,6 +25,9 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.403'
       - run: npm test
       - run: npm run build
       - name: Configure Pages
