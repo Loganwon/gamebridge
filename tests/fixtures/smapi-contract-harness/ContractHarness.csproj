@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GameBridge.ContractSimulation</AssemblyName>
+    <RootNamespace>GameBridge.ContractSimulation</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Host.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="ModConfig.cs" />
+    <Compile Include="$(ModSource)" Link="ModEntry.cs" />
+  </ItemGroup>
+  <Target Name="RequireExplicitSource" BeforeTargets="CoreCompile">
+    <Error Condition="'$(ModSource)' == '' Or !Exists('$(ModSource)')" Text="Provide an explicit source text with -p:ModSource=... for CONTRACT SIMULATION ONLY." />
+  </Target>
+</Project>

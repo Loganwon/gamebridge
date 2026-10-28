@@ -119,6 +119,37 @@ test('compiler process timeout, output limits and active cancellation all settle
   });
 });
 
+test('timeout, cancellation and output overflow settle even when a detached descendant holds inherited pipes', async t => {
+  if (process.platform === 'win32') { t.skip('This probe uses POSIX detached process groups.'); return; }
+  for (const kind of ['timeout', 'cancel', 'overflow']) await scratch(async dir => {
+    const controller = new AbortController(); let descendant, pending;
+    // This is our own process-limit probe, not a game/Mod or model-produced code.
+    const script = `const {spawn}=require('node:child_process');const fs=require('node:fs');const p=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'inherit'});fs.writeFileSync('descendant.pid',String(p.pid));p.unref();${kind === 'overflow' ? 'process.stdout.write("x".repeat(100000));' : ''}process.exit(0);`;
+    try {
+      const started = Date.now();
+      pending = runCompilerProcess(process.execPath, ['-e', script], { cwd: dir, signal: controller.signal, timeoutMs: kind === 'timeout' ? 500 : 30000, maxOutputBytes: kind === 'overflow' ? 1000 : 16384 });
+      for (let index = 0; index < 100 && !descendant; index++) {
+        try { descendant = Number(await readFile(path.join(dir, 'descendant.pid'), 'utf8')); } catch { /* Probe has not written its owned PID yet. */ }
+        if (!descendant) await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.ok(Number.isSafeInteger(descendant) && descendant > 0, 'The probe must have created its own detached descendant.');
+      if (kind === 'cancel') controller.abort();
+      let deadline;
+      const result = await Promise.race([pending, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('Compiler observer did not settle after forced stop.')), 2500); })]).finally(() => clearTimeout(deadline));
+      assert.equal(result[kind === 'timeout' ? 'timedOut' : kind === 'cancel' ? 'cancelled' : 'overflow'], true);
+      assert.equal(result.exitCode, null, 'An interrupted probe cannot report the already-exited parent as exitCode 0.');
+      assert.ok(Date.now() - started < 2500, 'Inherited pipes must not remove the termination deadline.');
+      assert.ok(result.output.length <= (kind === 'overflow' ? 1000 : 16384));
+    } finally {
+      // The runner promises group termination attempts, not arbitrary detached
+      // descendant containment. Explicitly remove the orphan we created here.
+      controller.abort();
+      if (descendant) { try { process.kill(-descendant, 'SIGKILL'); } catch { /* Already exited. */ } }
+      if (pending) await pending;
+    }
+  });
+});
+
 test('an actual installed SDK can be probed but no game install is fabricated for compilation', async t => {
   const environment = await inspectBuildEnvironment({ gamePath: '' });
   if (!environment.dotnet.available) { t.skip('No real SDK is installed in this test environment.'); return; }

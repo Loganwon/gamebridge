@@ -86,12 +86,35 @@ test('unsafe source capabilities and obfuscated/alternate declarations are rejec
     'dynamic x = null;', 'unsafe { int* x = null; }', 'var x = typeof(ModEntry);',
     'System.Threading.Tasks.Task.Run(() => {});', 'helper.WriteConfig(this.Config);',
     'this.Config.Enabled = true;', '\\u0050rocess.Start("sh");',
+    'System.ComponentModel.TypeDescriptor.GetProperties(this.Config)["Enabled"].SetValue(this.Config, true);',
     'var x = $"{System.IO.File.ReadAllText(\"secret\")}";',
     '#if DEBUG\n#endif',
   ]) assert.throws(() => validateModCode(proposal(original.replace('this.Config = helper.ReadConfig<ModConfig>();', 'this.Config = helper.ReadConfig<ModConfig>();\n' + inserted))), error => error.code === 'INVALID_CODE', inserted);
   assert.throws(() => validateModCode(proposal('/* ' + original + ' */')), /entry point/);
   assert.throws(() => validateModCode(proposal(original.replaceAll('!this.Config.Enabled', 'false'))), /guards/);
   assert.throws(() => validateModCode(proposal(original.replace('using System;', 'using Alias = System;'))), /namespace/);
+});
+
+test('explicit writes and aliases cannot force-enable or replace the opt-in configuration', () => {
+  const read = 'this.Config = helper.ReadConfig<ModConfig>();';
+  for (const inserted of [
+    'this.Config.Enabled |= true;', 'this.Config.Enabled &= false;', 'this.Config.Enabled ^= true;',
+    'this.Config.Enabled ??= true;', 'this.Config.Enabled += true;', 'this.Config.Enabled++;',
+    '++this.Config.Enabled;', '(this.Config.Enabled) = true;',
+    'var settings = this.Config; settings.Enabled |= true;',
+    'Replace(ref this.Config);', 'Replace(out this.Config);',
+    'Replace(ref this.Config.Enabled);', 'Replace(out settings.Enabled);',
+    'this.Config = new ModConfig();', 'Config ??= new ModConfig();',
+    '(this.Config) = new ModConfig();', '(this.Config, ignored) = (new ModConfig(), 0);',
+    '(ignored, this.Config) = (0, new ModConfig());',
+    'var settings = this.Config; (settings.Enabled, ignored) = (true, 0);',
+    'this.Config = new ModConfig { Enabled = true };',
+    'this.Config = helper.ReadConfig<ModConfig>();',
+  ]) assert.throws(() => validateModCode(proposal(original.replace(read, read + '\n' + inserted))), error => error.code === 'INVALID_CODE', inserted);
+  assert.throws(() => validateModCode(proposal(original.replace(read, '') + '\nclass Extra { void Reset() { this.Config = helper.ReadConfig<ModConfig>(); } }')), /Entry|guards/);
+  const missingSemicolon = original.replace('private ModConfig Config = new();', 'private ModConfig Config = new()');
+  assert.equal(validateModCode(proposal(missingSemicolon)).files[0].content, missingSemicolon, 'a missing semicolon remains available to the compiler/repair path');
+  assert.equal(validateModCode(proposal()).files[0].content, original);
 });
 
 test('code errors, successful credential echoes and credentials embedded in inputs never leak', async () => {

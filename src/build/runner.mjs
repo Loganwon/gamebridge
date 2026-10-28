@@ -65,13 +65,25 @@ function stopTree(child, force = false) {
   } catch { /* Process already exited. */ }
 }
 
-/** Bounded compiler subprocess. Exported to test cancellation and credential isolation without a game. */
+/** Bounded compiler observation. Termination targets its controlled process group;
+ * detached descendants can escape that group and need independent OS isolation.
+ * Exported to test cancellation and credential isolation without a game. */
 export async function runCompilerProcess(command, args, { cwd, signal, timeoutMs = 180000, maxOutputBytes = MAX_OUTPUT, env = minimalEnv(cwd, command) } = {}) {
   if (signal?.aborted) return { exitCode: null, output: '', cancelled: true, timedOut: false, overflow: false };
   return new Promise(resolve => {
     let output = '', size = 0, settled = false, cancelled = false, timedOut = false, overflow = false, spawnError = false, forceTimer;
     const child = spawn(command, args, { cwd, env, shell: false, detached: process.platform !== 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    const stop = () => { stopTree(child); forceTimer ??= setTimeout(() => stopTree(child, true), 750); forceTimer.unref(); };
+    const stop = () => {
+      stopTree(child);
+      forceTimer ??= setTimeout(() => {
+        stopTree(child, true);
+        // A detached descendant may retain inherited pipes after the direct
+        // child exits. Do not wait indefinitely for that descendant's close.
+        child.stdout.destroy(); child.stderr.destroy();
+        finish(null);
+      }, 750);
+      forceTimer.unref();
+    };
     const onAbort = () => { cancelled = true; stop(); };
     const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
     timer.unref();
@@ -86,9 +98,10 @@ export async function runCompilerProcess(command, args, { cwd, signal, timeoutMs
     const finish = exitCode => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(forceTimer); signal?.removeEventListener('abort', onAbort);
-      // MSBuild/compilers are forced to avoid server reuse; terminate any residual child processes.
+      // Try to stop residual members of the controlled process group. This does
+      // not prove termination of descendants which created a separate group.
       stopTree(child, true);
-      resolve({ exitCode, output, cancelled, timedOut, overflow, spawnError });
+      resolve({ exitCode: cancelled || timedOut || overflow ? null : exitCode, output, cancelled, timedOut, overflow, spawnError });
     };
     child.once('error', () => { spawnError = true; finish(null); });
     child.once('close', finish);

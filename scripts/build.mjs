@@ -9,7 +9,7 @@ await mkdir(path.join(dist, 'docs'), { recursive: true });
 for (const file of ['index.html', 'style.css', 'app.js']) {
   await copyFile(path.join(root, 'site', file), path.join(dist, file));
 }
-for (const file of ['ai-mod-workbench.md', 'deepseek-pipeline-acceptance.md', 'gameplay-bridge.md', 'runtime-protocol.md', 'product-and-validation.md']) {
+for (const file of ['ai-mod-workbench.md', 'deepseek-pipeline-acceptance.md', 'sandbox-verification.md', 'sandbox-verification-results.json', 'gameplay-bridge.md', 'runtime-protocol.md', 'product-and-validation.md']) {
   await copyFile(path.join(root, 'docs', file), path.join(dist, 'docs', file));
 }
 console.log('Built AI Mod workbench and documentation in dist/');

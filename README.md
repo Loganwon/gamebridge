@@ -2,7 +2,7 @@
 
 用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 调用 DeepSeek 分析需求，检查能力与素材缺口，生成 Mod 源码，并在本地编译、根据编译错误进行有限次数的修复。
 
-**当前版本 0.4 Alpha：已完成真实 DeepSeek 需求分析、代码生成，以及真实 Roslyn 语法诊断到模型修复的受控验收。完整 Mod 编译器与自动修复调度已实现，但用户尚无星露谷/SMAPI 环境，真实 Mod 编译及游戏实测仍未验收。** 语法通过不等于游戏 API 正确或 Mod 可玩。[验收范围与证据](docs/deepseek-pipeline-acceptance.md)
+**当前版本 0.4.1 Alpha：受限代码已在 macOS 操作系统沙盒中通过 21 个契约场景、75 条断言；故意写错的行为也被识别。真实 DeepSeek 生成与编译错误修复经过验证，但本轮新的需求分析出现格式失败，尚不能认为工具稳定可用。真实 Mod 编译及游戏实测仍未验收。** 模拟器通过不等于游戏 API 正确或 Mod 可玩。[沙盒报告（含失败记录）](docs/sandbox-verification.md) · [此前语法验收](docs/deepseek-pipeline-acceptance.md)
 
 [公开预览](https://loganwon.github.io/gamebridge/) · [工具设计与使用说明](docs/ai-mod-workbench.md) · [GitHub](https://github.com/Loganwon/gamebridge)
 
@@ -42,3 +42,9 @@ npm run dev
 ## 持续更新
 
 每次修改测试、构建后普通推送到已验证的 GitHub 仓库，GitHub Actions 随 main 更新公开页面。CI 配置真实 .NET SDK 验证编译工具与语法解析器，不保存 Key、不调用收费模型，也不持有商业游戏引用。公开 Pages 仅展示界面与说明，制作和模型设置在本地服务中进行。
+
+## 独立沙盒验收
+
+macOS + .NET SDK 10 可运行 `npm run test:sandbox`，无模型调用。它先验证文件/网络/执行边界，再在 OS 沙盒中编译并运行项目自有的接口模拟器，检查当前固定机制，报告始终保持 `realModBuild=not_run`、`game=not_run`。它不是生产游戏编译器，也不是虚拟机；主工作台不会自动执行 Mod DLL。
+
+`npm run test:sandbox -- --live` 另行调用本地配置的 DeepSeek，最多一次分析、一次生成和一次受控编译错误修复；任一步失败即停止，不自动重试。可以用 `--source file.cs --plan plan.json` 无费用回放已有源码，或再加 `--repair-live` 只验收一次收费修复。原始产物默认保存在被忽略的 `artifacts/sandbox-verification/`。

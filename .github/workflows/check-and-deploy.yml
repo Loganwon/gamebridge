@@ -39,9 +39,24 @@ jobs:
         with:
           path: dist
 
+  sandbox-check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.403'
+      - run: npm run test:sandbox
+
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'
-    needs: check
+    needs: [check, sandbox-check]
     runs-on: ubuntu-latest
     permissions:
       pages: write

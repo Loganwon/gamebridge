@@ -131,7 +131,7 @@ ${definitions}
                 source: "GameBridge",
                 displayName: mechanic.Melee ? "GameBridge melee draft" : "GameBridge speed draft",
                 description: "Generated mechanism draft; source-game fidelity is not validated.",
-                duration: (int)Math.Ceiling(mechanic.DurationTicks * (1000d / 60d)),
+                duration: (int)Math.Ceiling(mechanic.DurationTicks * 1000d / 60d),
                 effects: effects
             );
             Game1.player.applyBuff(buff);

@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-28",
+  "timeZone": "Asia/Shanghai",
+  "version": "0.4.1-alpha.1",
+  "verdict": "limited_contract_flow_verified_not_product_ready",
+  "realModBuild": "not_run",
+  "game": "not_run",
+  "readyToInstall": false,
+  "modelCalls": {
+    "total": 3,
+    "freshAnalysis": 1,
+    "codeGenerationUsingPreviousPlan": 1,
+    "repairUsingPreviousPlan": 1
+  },
+  "freshAnalysis": {
+    "passed": false,
+    "error": {
+      "code": "INVALID_PLAN",
+      "message": "Provider plan failed local checks: Invalid asset requirements."
+    },
+    "followup": "Prompt types clarified; no additional fresh-analysis call was made in this acceptance budget."
+  },
+  "fixtureGap": {
+    "compilerCodes": [
+      "CS0246",
+      "CS0246"
+    ],
+    "cause": "Test fixture lacked valid SavingEventArgs/ReturnedToTitleEventArgs; fixture corrected without asking model to remove valid API usage."
+  },
+  "originalSourceFailure": {
+    "sourceSha256": "9be1f73a5720fd82f42337deea39217d23e327433dfc898014fd7905c3258800",
+    "cases": 21,
+    "passed": 20,
+    "failures": [
+      {
+        "Id": "speed_value_duration_and_suppression",
+        "Passed": false,
+        "Failure": "Buff duration must match declared ticks: expected 2000 ms, observed 2001 ms."
+      }
+    ]
+  },
+  "sandbox": {
+    "provider": "macOS Seatbelt sandbox-exec",
+    "network": "deny",
+    "fileDataReads": "system-sdk-and-scratch-only",
+    "fileWrites": "scratch-and-dev-null-only",
+    "executables": "node-dotnet-and-exact-sdk-csc-only",
+    "credentials": "not-inherited",
+    "policyFile": "outside-writable-scratch",
+    "vm": false
+  },
+  "boundaryProbes": {
+    "allowedWrite": true,
+    "outsideReadDenied": true,
+    "outsideWriteDenied": true,
+    "symlinkReadDenied": true,
+    "policyWriteDenied": true,
+    "policyChmodDenied": true,
+    "policyDeleteDenied": true,
+    "networkDenied": true,
+    "shellExecDenied": true,
+    "noProviderCredential": true
+  },
+  "behavior": {
+    "scope": "contract-simulation-only",
+    "cases": 21,
+    "assertions": 75,
+    "passed": true,
+    "negativeControl": {
+      "expectedFailure": true,
+      "observedFailure": true,
+      "failedCases": [
+        "speed_value_duration_and_suppression"
+      ]
+    }
+  },
+  "repair": {
+    "scope": "controlled-test-double-compile-fault",
+    "compilerErrorsBefore": [
+      "CS1002"
+    ],
+    "compilerErrorsAfter": [],
+    "behaviorPassed": true,
+    "modelCalls": 1,
+    "sourceSha256": "62baa91b384cfe2905926a2c86c27514876b7a10268fb2b58148550027ad221a",
+    "plan": "previously-validated-model-plan-not-reanalyzed"
+  },
+  "sourceSha256": "62baa91b384cfe2905926a2c86c27514876b7a10268fb2b58148550027ad221a",
+  "productionBuild": {
+    "status": "blocked",
+    "diagnostics": [
+      "GAME_PATH_REQUIRED"
+    ],
+    "artifacts": 0
+  },
+  "productionPipeline": {
+    "status": "blocked",
+    "modelCalls": 0,
+    "build": "not_run",
+    "game": "not_run"
+  },
+  "fixedFindings": [
+    "duration rounding: 120 ticks must produce 2000 ms, not 2001 ms",
+    "explicit config-force-enable and common TypeDescriptor write forms",
+    "subprocess hard settlement when detached descendants retain pipes",
+    "sandbox policy file moved outside writable scratch and protected by OS policy"
+  ],
+  "limitations": [
+    "No commercial game code or original assets were used.",
+    "Test doubles do not establish actual SMAPI API compatibility, collision, damage, animation or save behavior.",
+    "Fresh model analysis failed this run; end-to-end reliability is not proven.",
+    "Roles, weapons, complete movesets and other game hosts remain unimplemented.",
+    "The macOS verification profile is not a VM or a comprehensive hostile-code security guarantee."
+  ]
+}

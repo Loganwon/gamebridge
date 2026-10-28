@@ -1,12 +1,13 @@
 {
   "name": "gamebridge",
-  "version": "0.4.0-alpha.1",
+  "version": "0.4.1-alpha.1",
   "private": true,
   "type": "module",
   "description": "DeepSeek-assisted Mod generation, isolated compilation and bounded repair workflow",
   "engines": { "node": ">=24" },
   "scripts": {
     "test": "node --test",
+    "test:sandbox": "node --env-file-if-exists=.env scripts/verify-sandbox.mjs",
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && node --env-file-if-exists=.env scripts/workbench.mjs",
     "github:publish": "node scripts/publish-github.mjs"
