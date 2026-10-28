@@ -9,7 +9,7 @@ await mkdir(path.join(dist, 'docs'), { recursive: true });
 for (const file of ['index.html', 'style.css', 'app.js']) {
   await copyFile(path.join(root, 'site', file), path.join(dist, file));
 }
-for (const file of ['gameplay-bridge.md', 'runtime-protocol.md', 'product-and-validation.md']) {
+for (const file of ['ai-mod-workbench.md', 'gameplay-bridge.md', 'runtime-protocol.md', 'product-and-validation.md']) {
   await copyFile(path.join(root, 'docs', file), path.join(dist, 'docs', file));
 }
-console.log('Built design site and specifications in dist/');
+console.log('Built AI Mod workbench and documentation in dist/');

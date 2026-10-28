@@ -3,107 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#f5f4ef" />
-  <meta name="description" content="GameBridge 设计方案：通过本地运行时与游戏适配器，把 A 游戏的角色、内容和玩法带入 B 游戏。当前处于设计阶段，尚未实现游戏接入。" />
-  <title>GameBridge — 跨游戏内容与玩法桥接设计</title>
+  <meta name="theme-color" content="#f4f3ed" />
+  <meta name="description" content="GameBridge AI Mod Studio：描述想在宿主游戏中体验的动作与玩法，调用模型分析需求，生成并检查 Mod 源码工程。" />
+  <title>GameBridge — AI Mod Studio</title>
   <link rel="stylesheet" href="./style.css" />
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">跳到设计方案</a>
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="GameBridge 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>GameBridge<small>CROSS-GAME PLAY</small></span></a>
-    <nav class="header-links" aria-label="主导航"><a href="#architecture">架构</a><a href="#roadmap">实施路线</a><a href="#documents">完整方案 <span aria-hidden="true">↗</span></a></nav>
-    <a class="repo-link" href="https://github.com/Loganwon/gamebridge">GitHub <span aria-hidden="true">↗</span></a>
-  </header>
-
-  <main id="main">
-    <section class="hero content-width" id="top" aria-labelledby="page-title">
-      <div class="hero-copy">
-        <p class="eyebrow"><span class="orange-line"></span> GAMEBRIDGE / DESIGN</p>
-        <h1 id="page-title">把 A 的玩法，<br />带进 B 的世界<span class="orange">。</span></h1>
-        <p class="hero-description">让一个游戏的角色、操作和玩法，在另一个游戏的世界中产生真实互动。用可复用的桥接核心与适配插件，逐步扩展新的游戏组合。</p>
-        <div class="hero-actions"><a class="primary-link" href="#documents">阅读完整设计 <span aria-hidden="true">↗</span></a><a class="quiet-link" href="#experience">从一次互动开始 <span aria-hidden="true">↓</span></a></div>
-        <p class="design-status"><span aria-hidden="true"></span><strong>设计阶段 · 游戏接入尚未实现</strong></p>
-      </div>
-      <div class="hero-diagram" aria-label="设计目标：游戏 A 的角色与玩法，经 GameBridge 连接游戏 B 的世界与交互">
-        <div class="diagram-topline"><span>ONE EXPERIENCE. TWO WORLDS.</span><span class="diagram-number">01 / GB</span></div>
-        <div class="world-row"><div class="world-card world-a"><span class="world-letter">A</span><div><strong>角色与玩法</strong><small>操作 · 武器 · 物品 · 建造</small></div><span class="world-end">SOURCE</span></div><div class="vertical-link" aria-hidden="true">↕</div><div class="bridge-core"><span class="bridge-lines" aria-hidden="true">≋</span><strong>GameBridge</strong><span>同步、映射与适配</span></div><div class="vertical-link" aria-hidden="true">↕</div><div class="world-card world-b"><span class="world-letter">B</span><div><strong>世界与交互</strong><small>场景 · 敌人 · 碰撞 · 进度</small></div><span class="world-end">HOST</span></div></div>
-        <p class="diagram-caption">角色进入世界，行为得到反馈。</p>
-      </div>
-    </section>
-
-    <div class="project-note content-width"><span class="note-index">当前状态</span><p>旧建筑转换器已移除。这个页面展示新的产品与技术设计，暂无可启动的桥接程序或已验证的游戏组合。</p><a href="#scope">查看范围 <span aria-hidden="true">→</span></a></div>
-
-    <div class="document-layout content-width">
-      <aside class="toc" aria-label="方案目录"><span class="toc-title">设计导航</span><nav><a href="#experience">01 <span>要实现的体验</span></a><a href="#scope">02 <span>内容与范围</span></a><a href="#routes">03 <span>两条运行路线</span></a><a href="#architecture">04 <span>系统架构</span></a><a href="#workflow">05 <span>用户流程</span></a><a href="#compatibility">06 <span>兼容与证据</span></a><a href="#mvp">07 <span>首个可玩版本</span></a><a href="#roadmap">08 <span>实施路线</span></a><a href="#constraints">09 <span>关键约束</span></a><a href="#documents">10 <span>完整设计文档</span></a></nav><div class="toc-foot"><span class="status-dot"></span> 文档已公开<br /><small>运行时与适配器待实现</small></div></aside>
-      <div class="document-body">
-        <section class="design-section" id="experience" aria-labelledby="experience-title">
-          <div class="section-heading"><span class="section-index">01 / EXPERIENCE</span><h2 id="experience-title">衡量成功的是一次真实互动。</h2></div>
-          <p class="section-lead">玩家使用 A 的角色和操作方式，进入 B 的世界。带来的玩法要能作用于 B 的实体、碰撞和状态，也能收到 B 的反馈。</p>
-          <ol class="interaction-loop" aria-label="跨游戏战斗的设计闭环"><li><span>01</span><strong>A 发起攻击</strong><p>使用 A 的武器与动作</p></li><li><span>02</span><strong>B 产生结果</strong><p>B 的敌人命中、扣血</p></li><li><span>03</span><strong>B 做出反击</strong><p>原生敌人继续作战</p></li><li><span>04</span><strong>A 收到反馈</strong><p>A 的角色受伤或死亡</p></li></ol>
-          <p class="caption">这是首个验证目标的示意。具体伤害、状态归属和恢复规则由游戏组合的适配方案决定。</p>
-          <div class="insight"><span aria-hidden="true">↳</span><p><strong>体验的核心是双向作用。</strong>画面里出现角色只是其中一环；碰撞、攻击、交互和状态恢复需要一起成立。</p></div>
+  <a class="skip-link" href="#workbench">跳到制作工作台</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="./" aria-label="GameBridge 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>GameBridge<small>AI MOD STUDIO</small></span></a>
+      <div class="sidebar-label">工作空间 <span>01</span></div>
+      <a class="workspace-link" href="#workbench"><span aria-hidden="true">✳</span> 制作工作台 <i aria-hidden="true"></i></a>
+      <div class="sidebar-caption">从一个想法，到一个 Mod 工程</div>
+      <ol class="workflow-nav" aria-label="制作流程">
+        <li data-stage="request" class="is-current"><span>01</span><div>描述体验<small>宿主、玩法来源与目标</small></div></li>
+        <li data-stage="plan"><span>02</span><div>拆解与规划<small>模型分析能力与缺口</small></div></li>
+        <li data-stage="source"><span>03</span><div>生成源码<small>创建宿主 Mod 工程</small></div></li>
+        <li data-stage="static"><span>04</span><div>静态检查<small>检查工程与生成范围</small></div></li>
+        <li data-stage="game"><span>05</span><div>构建与实机<small>需要对应游戏环境</small></div></li>
+      </ol>
+      <div class="sidebar-note"><span aria-hidden="true">↳</span><strong>由模型规划，由证据确认</strong><p>源码生成、构建通过和游戏实测分别记录。</p><a href="./docs/ai-mod-workbench.md">查看使用说明 ↗</a></div>
+      <div class="sidebar-footer"><span>DEVELOPMENT PREVIEW</span><span>AI WORKBENCH</span></div>
+    </aside>
+    <main id="workbench">
+      <header class="topbar"><div class="breadcrumb">工作空间 <span>/</span> <strong>AI Mod 制作</strong></div><div class="topbar-right"><span class="connection-badge" id="connection-badge"><i aria-hidden="true"></i><span id="connection-text">正在检查运行方式</span></span><a href="https://github.com/Loganwon/gamebridge">GitHub ↗</a></div></header>
+      <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow"><span></span> YOUR IDEA. A NEW WAY TO PLAY.</p><h1 id="page-title">描述体验，开始制作<span>。</span></h1><p>在熟悉的游戏里，体验另一款游戏的动作与交互。</p></div><span class="version-pill">AI Mod Studio · 开发预览</span></section>
+      <div id="runtime-notice" class="runtime-notice" role="status"><strong>正在检查本地服务…</strong><p>公开页面提供界面预览，调用模型与生成工程需要本地运行。</p></div>
+      <div class="workspace-grid">
+        <section class="request-column" aria-label="需求与模型设置">
+          <form id="request-form" class="panel request-panel">
+            <div class="panel-heading"><div><span class="section-number">01</span><h2>你想怎样玩？</h2></div><span class="small-label">BRIEF</span></div>
+            <div class="game-pair">
+              <div><label for="host-game">在哪个游戏里玩 <small>宿主 A</small></label><input id="host-game" name="hostGame" value="Stardew Valley" maxlength="100" required autocomplete="off" placeholder="例如：Stardew Valley" /><span class="field-hint">提供世界、角色和基础框架</span></div>
+              <div class="pair-arrow" aria-hidden="true">←</div>
+              <div><label for="source-game">带入哪个游戏的玩法 <small>来源 B</small></label><input id="source-game" name="sourceGame" value="Terraria" maxlength="100" required autocomplete="off" placeholder="例如：Terraria" /><span class="field-hint">提供希望体验的动作与交互</span></div>
+            </div>
+            <label class="description-label" for="request-description">描述想带入的角色、武器、招式或交互</label>
+            <textarea id="request-description" name="description" rows="6" maxlength="6000" required placeholder="例如：在星露谷中保留农场、NPC 和存档，加入泰拉瑞亚式近战、瞄准攻击和位移动作。">在星露谷中保留农场、NPC 和存档，加入泰拉瑞亚式的近战、瞄准攻击和位移动作。需要角色或武器素材时，请明确列出依赖和仍需适配的部分。</textarea>
+            <div class="prompt-meta"><span>描述越具体，生成范围越清楚</span><span id="description-count">0 / 6000</span></div>
+            <div class="example-row"><span>试试这个需求</span><button type="button" data-example="stardew">星露谷 × 泰拉瑞亚 <span aria-hidden="true">↗</span></button><button type="button" data-example="gta">GTA × CS <span aria-hidden="true">↗</span></button></div>
+            <details class="model-settings" id="model-settings" hidden>
+              <summary><span><span aria-hidden="true">⚙</span> 模型设置</span><span class="model-caption" id="model-caption">DeepSeek · 当前会话</span></summary>
+              <div class="model-fields"><div class="provider-row"><div><label for="provider-base-url">API 地址</label><input id="provider-base-url" type="url" value="https://api.deepseek.com" autocomplete="off" disabled /></div><div><label for="provider-model">模型名称</label><input id="provider-model" value="deepseek-flash" maxlength="100" autocomplete="off" disabled /></div></div><label for="provider-api-key">API Key <small id="api-key-hint">仅在当前页面内存中使用</small></label><div class="key-input"><input id="provider-api-key" type="password" maxlength="8192" autocomplete="off" spellcheck="false" placeholder="输入你的 API Key" disabled /><button id="clear-key" type="button" disabled aria-label="清除输入的 API Key">清除</button></div><p>点击分析后，需求与能力说明会发送到所填 API 地址。密钥不保存到浏览器或工程文件。</p></div>
+            </details>
+            <div class="form-actions"><button class="primary-button" id="analyze-button" type="submit" disabled><span class="button-symbol" aria-hidden="true">✳</span><span id="analyze-label">分析需求（调用模型）</span><span aria-hidden="true">→</span></button><button class="secondary-button" id="example-project-button" type="button" disabled>查看示例工程 <small>不调用 AI</small></button></div>
+            <p class="form-note" id="form-note">正在检查本地服务。</p>
+          </form>
+          <div class="boundary-card"><span class="note-icon" aria-hidden="true">i</span><div><strong>每一项需求都保留。</strong><p>模型会列出可生成的部分、缺少的素材与接口。角色和完整武器需要对应资源；未知游戏会保留为待适配，不会自动变成一个演示小游戏。</p></div></div>
         </section>
-
-        <section class="design-section" id="scope" aria-labelledby="scope-title">
-          <div class="section-heading"><span class="section-index">02 / CONTENT</span><h2 id="scope-title">按玩法能力组织内容。</h2></div>
-          <p class="section-lead">选择希望带入的内容，再检查目标游戏能承接到什么程度。以下均为规划模块，首个版本会收敛到一条完整链路。</p>
-          <div class="module-grid"><article><span class="module-number">01</span><h3>角色与操控</h3><p>角色呈现、移动方式、视角和输入归属。</p><span class="planned-label">规划中</span></article><article><span class="module-number">02</span><h3>动作与战斗</h3><p>攻击动作、命中反馈、伤害映射和死亡恢复。</p><span class="planned-label">规划中</span></article><article><span class="module-number">03</span><h3>道具与物品</h3><p>背包、消耗、装备以及两端物品语义的对应。</p><span class="planned-label">规划中</span></article><article><span class="module-number">04</span><h3>建造与环境</h3><p>放置、破坏、物理碰撞和世界中的持久化。</p><span class="planned-label">后续扩展</span></article><article><span class="module-number">05</span><h3>规则与成长</h3><p>资源、技能与成长机制，依赖已验证的交互能力。</p><span class="planned-label">后续扩展</span></article><article class="module-note"><span class="module-number">＋</span><h3>每项能力有边界</h3><p>支持角色显示，不代表支持战斗；支持放置，也不代表敌人能够踩上建造物。</p></article></div>
-        </section>
-
-        <section class="design-section" id="routes" aria-labelledby="routes-title">
-          <div class="section-heading"><span class="section-index">03 / APPROACH</span><h2 id="routes-title">让运行方式与玩法匹配。</h2></div>
-          <div class="route-grid"><article class="route-card featured"><span class="route-tag">优先验证</span><h3>双游戏实时桥接</h3><p class="route-summary">A、B 同时运行，各自保留自身系统。</p><p>通过两端适配器交换角色状态、交互与必要画面。适合希望保留 A 既有复杂玩法的组合。</p><dl><div><dt>复用什么</dt><dd>A 的现有玩法运行结果</dd></div><div><dt>主要难点</dt><dd>两端时序、碰撞、渲染及性能</dd></div><div><dt>运行条件</dt><dd>两端均有获允许且足够的接口</dd></div></dl></article><article class="route-card"><span class="route-tag secondary">后续路线</span><h3>B 内原生玩法移植</h3><p class="route-summary">B 加载玩法包，游玩时仅运行 B。</p><p>在实时桥接路线验证后，评估利用 B 的编辑或 Mod 能力承接资源，并重新实现选定机制。首版不同时交付这条路线。</p><dl><div><dt>复用什么</dt><dd>可导入资源、明确的玩法定义</dd></div><div><dt>主要难点</dt><dd>动作适配、规则重写与行为差异</dd></div><div><dt>运行条件</dt><dd>B 的接口能够实现所选玩法</dd></div></dl></article></div>
-          <p class="caption">Minecraft × 艾尔登法环用于研究思路。尚未指定首发游戏，也未承诺该组合符合本项目的接入约定。</p>
-        </section>
-
-        <section class="design-section" id="architecture" aria-labelledby="architecture-title">
-          <div class="section-heading"><span class="section-index">04 / ARCHITECTURE</span><h2 id="architecture-title">复用核心，为每款游戏适配。</h2></div>
-          <div class="architecture-map" aria-label="拟定架构"><div class="architecture-control"><span>本地桌面管理器</span><small>选择组合 · 检查能力 · 启停会话 · 诊断与恢复</small></div><div class="architecture-channel" aria-hidden="true">↓</div><div class="architecture-runtime"><div class="architecture-end"><span class="box-letter">A</span><strong>来源适配器</strong><small>角色 / 玩法 / 事件</small></div><span class="architecture-arrow" aria-hidden="true">↔</span><div class="architecture-center"><strong>统一桥接核心</strong><span>会话与能力协商</span><span>坐标、时间、实体映射</span><span>状态与交互同步</span></div><span class="architecture-arrow" aria-hidden="true">↔</span><div class="architecture-end"><span class="box-letter">B</span><strong>宿主适配器</strong><small>世界 / 碰撞 / 反馈</small></div></div><div class="architecture-footer"><span>按需配置：渲染适配</span><span>每个组合：体验配方</span><span>按会话保存：映射与状态</span></div></div>
-          <div class="two-column-copy"><div><h3>核心处理共性</h3><p>连接状态、版本协商、消息验证、坐标与单位转换、实体对应、重复事件及故障恢复。</p></div><div><h3>插件处理游戏差异</h3><p>具体版本的角色、相机、碰撞、伤害和存档接口。组合配方说明谁负责最终结果、哪些能力可用。</p></div></div>
-          <a class="inline-link" href="https://github.com/Loganwon/gamebridge/blob/main/docs/runtime-protocol.md">阅读运行时与协议设计 <span aria-hidden="true">↗</span></a>
-        </section>
-
-        <section class="design-section" id="workflow" aria-labelledby="workflow-title">
-          <div class="section-heading"><span class="section-index">05 / WORKFLOW</span><h2 id="workflow-title">从选择体验，到可靠退出。</h2></div>
-          <ol class="workflow-list"><li><span>1</span><div><h3>选择 A、B 与版本</h3><p>区分内容来源和承载世界，检查系统、游戏版本及接口条件。</p></div></li><li><span>2</span><div><h3>选择要带入的玩法</h3><p>选角色、操控、战斗或其他模块，使用已定义的体验配方。</p></div></li><li><span>3</span><div><h3>查看兼容报告</h3><p>看到可用能力、限制、运行方式与验证证据；缺少关键能力时不能启动。</p></div></li><li><span>4</span><div><h3>准备本地会话</h3><p>检查插件和游戏，建立独立配置，确认存档恢复方式，再接通控制。</p></div></li><li><span>5</span><div><h3>游玩与观察反馈</h3><p>显示真实连接状态；切换菜单、控制权、地图或发生故障时采取明确动作。</p></div></li><li><span>6</span><div><h3>保存、退出或恢复</h3><p>结束会话，归还控制，保存声明支持的状态，必要时回滚插件配置。</p></div></li></ol>
-          <p class="caption">以上为拟定桌面产品流程。当前网页仅承载方案与说明，不访问或控制本机游戏。</p>
-        </section>
-
-        <section class="design-section" id="compatibility" aria-labelledby="compatibility-title">
-          <div class="section-heading"><span class="section-index">06 / COMPATIBILITY</span><h2 id="compatibility-title">每个组合，都有独立的证据。</h2></div>
-          <p class="section-lead">以“A 版本＋B 版本＋插件版本＋系统＋玩法配方”记录兼容性。来源可用，不自动意味着能成为宿主；同一引擎也不等于相同接口。</p>
-          <div class="table-scroll" role="region" aria-label="兼容性状态定义" tabindex="0"><table><thead><tr><th scope="col">状态</th><th scope="col">能够说明什么</th><th scope="col">进入下一步的条件</th></tr></thead><tbody><tr><th scope="row"><span class="state-label research">研究中</span></th><td>接口与接入路径在核查</td><td>确认可用接口、版本和权限边界</td></tr><tr><th scope="row"><span class="state-label">接口探针通过</span></th><td>真实游戏接口具备所需的基本能力</td><td>完成适配器合约与异常处理验证</td></tr><tr><th scope="row"><span class="state-label">合约验证通过</span></th><td>协议、能力和恢复语义满足合约</td><td>完成指定组合的实机互动与恢复测试</td></tr><tr><th scope="row"><span class="state-label">实机验证通过</span></th><td>声明范围内有真实运行记录</td><td>验证安装、分发、回滚及使用文档</td></tr><tr><th scope="row"><span class="state-label verified">发布可用</span></th><td>对应组合与版本可按文档部署使用</td><td>持续记录问题，上游更新后重新验收</td></tr></tbody></table></div>
-          <div class="current-evidence"><strong>当前：尚无组合通过接口探针或后续验证。</strong><span>案例研究提供设计依据，不构成本项目的兼容性认证。</span></div>
-        </section>
-
-        <section class="design-section" id="mvp" aria-labelledby="mvp-title">
-          <div class="section-heading"><span class="section-index">07 / FIRST PLAYABLE</span><h2 id="mvp-title">先把一条链路，做成能玩的体验。</h2></div>
-          <p class="section-lead">选择一组可获允许接入、可实机运行的游戏，固定版本，验证角色操控与双向战斗。首发组合仍待选定。</p>
-          <div class="mvp-grid"><div class="mvp-scope"><h3>首个版本应交付</h3><ul><li>一组来源端与宿主端适配器</li><li>可启动、暂停和停止的本地会话</li><li>角色移动、相机和基础碰撞</li><li>一次完整的攻击与受伤反馈</li><li>死亡恢复、控制切换与异常退出</li><li>明确兼容版本、限制和实机记录</li></ul></div><div class="acceptance"><span class="acceptance-label">验收发生在真实游戏中</span><h3>实际游玩，是完成标准。</h3><p>移动和碰撞一致；命中和反击正确结算；重复消息不重复扣血。死亡、重启与断连后有可核对的恢复路径，结果不明时停机并对账；换区支持按具体配方声明。</p><p>同时记录硬件、游戏版本、帧率和延迟。性能目标需以实际基线核定。</p></div></div>
-          <p class="caption">多人联机、任意游戏自动适配、完整剧情迁移和全部玩法无损转换，不属于首个版本的交付范围。</p>
-        </section>
-
-        <section class="design-section" id="roadmap" aria-labelledby="roadmap-title">
-          <div class="section-heading"><span class="section-index">08 / ROADMAP</span><h2 id="roadmap-title">每一步，都有明确的退出条件。</h2></div>
-          <div class="milestones"><article><span class="milestone-marker current" aria-hidden="true">D</span><div><span class="milestone-state">当前阶段 · DESIGN</span><h3>设计与范围确认</h3><p>完整方案、接口需求、验收标准；清除偏离目标的旧实现。</p></div></article><article><span class="milestone-marker">M0</span><div><h3>接入调查</h3><p>固定 A/B、版本和平台，用真实接口探针证明所选玩法可行；不满足条件则停止该组合。</p></div></article><article><span class="milestone-marker">M1</span><div><h3>最小互联</h3><p>在一个真实场景中，打通移动、命中、反击和恢复闭环。</p></div></article><article><span class="milestone-marker">M2</span><div><h3>可玩 Alpha</h3><p>验证菜单切换、载入、异常退出、存档边界和重复会话。</p></div></article><article><span class="milestone-marker">M3</span><div><h3>工具化</h3><p>完成安装、卸载、配方、诊断、版本锁与回滚，让测试者按文档使用。</p></div></article><article><span class="milestone-marker">M4</span><div><h3>扩展证明</h3><p>增加第二个来源或宿主，检验核心复用能力，记录必须新增的专用适配。</p></div></article></div>
-        </section>
-
-        <section class="design-section" id="constraints" aria-labelledby="constraints-title">
-          <div class="section-heading"><span class="section-index">09 / BOUNDARIES</span><h2 id="constraints-title">把影响体验的限制提前说清楚。</h2></div>
-          <div class="constraint-list"><article><h3>接口决定接入范围</h3><p>通过官方或获允许的 Mod、插件、编辑接口实现。当前设计不包含进程注入、内存修改或反作弊规避；无法据此支持的目标保持不支持。</p></article><article><h3>单机与联网分别评估</h3><p>首轮验证聚焦获允许的单机环境。离线模式本身不等于获得修改许可，也无法承诺任何游戏零封禁。</p></article><article><h3>内容与存档留在本地</h3><p>仅使用拥有相应使用权的内容；公共仓库发布工具和可再分发示例。玩家游戏文件、存档和凭据不随源码上传。</p></article><article><h3>性能和状态必须实测</h3><p>双游戏同时运行会增加资源开销；物理与画面的共同呈现不保证共享规则。逐项验证，并公开已知缺口。</p></article></div>
-        </section>
-
-        <section class="design-section documents-section" id="documents" aria-labelledby="documents-title">
-          <div class="section-heading"><span class="section-index">10 / DOCUMENTATION</span><h2 id="documents-title">完整方案，开放阅读。</h2></div>
-          <p class="section-lead">总体方案、协议规范和产品验收共同定义下一阶段的实现范围。</p>
-          <div class="document-cards"><article><span>01 / OVERVIEW</span><h3>总体设计方案</h3><p>定位、技术路线、系统分层、范围、决策与风险。</p><div><a href="https://github.com/Loganwon/gamebridge/blob/main/docs/gameplay-bridge.md">在线阅读 ↗</a><a href="./docs/gameplay-bridge.md" download>下载文档 ↓</a></div></article><article><span>02 / RUNTIME</span><h3>运行时与协议</h3><p>适配器、状态与消息、时序、资源限制和恢复策略。</p><div><a href="https://github.com/Loganwon/gamebridge/blob/main/docs/runtime-protocol.md">在线阅读 ↗</a><a href="./docs/runtime-protocol.md" download>下载文档 ↓</a></div></article><article><span>03 / PRODUCT</span><h3>产品与验收</h3><p>用户流程、页面状态、MVP、里程碑和实机测试方法。</p><div><a href="https://github.com/Loganwon/gamebridge/blob/main/docs/product-and-validation.md">在线阅读 ↗</a><a href="./docs/product-and-validation.md" download>下载文档 ↓</a></div></article></div>
-          <div class="design-disclaimer"><strong>设计说明</strong><p>本页呈现计划中的产品。游戏运行时、适配器与玩法接入均待实现；文档公开和网页上线不等于已提供可玩的桥接工具。</p></div>
+        <section class="output-column" aria-label="分析结果与工程">
+          <div class="panel plan-panel">
+            <div class="panel-heading"><div><span class="section-number">02</span><h2>制作计划</h2></div><span class="result-badge" id="plan-badge">等待需求</span></div>
+            <div class="empty-plan" id="empty-plan"><div class="empty-diagram" aria-hidden="true"><span>A</span><i>←</i><b>✳</b><i>←</i><span>B</span></div><h3>先让想法变得可执行。</h3><p>分析宿主接口、拆解动作与资源依赖，再生成对应的 Mod 工程。</p><div class="empty-checks"><span>需求逐项拆解</span><span>能力与资源检查</span><span>未实现项可追踪</span></div></div>
+            <div id="plan-content" hidden><div class="plan-title-row"><h3 id="plan-title"></h3><span class="origin-badge" id="plan-origin"></span></div><p class="plan-summary" id="plan-summary"></p><div class="scope-counts" id="scope-counts"></div><div class="requirements-heading"><strong>需求与接入能力</strong><span>生成范围逐项确认</span></div><ul class="requirements" id="requirements"></ul><div class="supporting-list" id="assets-section" hidden><h4>还需要的素材</h4><ul id="asset-requirements"></ul></div><div class="supporting-list" id="limitations-section" hidden><h4>限制与待完成项</h4><ul id="plan-limitations"></ul></div><details class="mechanics-details"><summary>查看计划参数</summary><pre id="plan-parameters"></pre></details><div class="generate-row"><p id="generation-hint">计划需要本地校验后才能生成工程。</p><button id="generate-button" class="primary-button compact" type="button" disabled>生成源码草稿 <span aria-hidden="true">↗</span></button></div></div>
+          </div>
+          <div class="status-message error" id="error-message" role="alert" hidden></div>
+          <div class="status-message success" id="action-message" role="status" aria-live="polite" hidden></div>
+          <div class="panel project-panel" id="project-panel">
+            <div class="panel-heading"><div><span class="section-number">03</span><h2>工程与验证</h2></div><span class="small-label" id="file-count">NO FILES</span></div>
+            <div class="validation-strip" aria-label="工程验证阶段"><div><span id="source-state" class="state-dot"></span><strong>源码工程</strong><small id="source-status">尚未生成</small></div><div><span id="static-state" class="state-dot"></span><strong>静态检查</strong><small id="static-status">待生成后检查</small></div><div><span class="state-dot"></span><strong>构建 / 实机</strong><small id="game-status">尚未验证</small></div></div>
+            <div class="file-browser"><nav id="file-list" aria-label="工程文件列表"><p>生成的文件将在这里显示。</p></nav><div class="source-pane"><div class="source-toolbar"><span id="active-filename">等待工程文件</span><span>SOURCE PREVIEW</span></div><pre><code id="source-preview">描述需求并分析后，可以创建可下载的 Mod 源码工程。</code></pre></div></div>
+            <div class="project-footer"><div><strong id="project-status">等待制作计划</strong><p id="project-note">生成源码与静态检查不代表 Mod 已经可以在游戏内运行。</p></div><a id="download-button" class="download-button is-disabled" aria-disabled="true" tabindex="-1"><span aria-hidden="true">↓</span> 下载源码工程</a></div>
+          </div>
         </section>
       </div>
-    </div>
-  </main>
-  <footer class="site-footer content-width"><a class="footer-brand" href="#top">GameBridge <span>连接玩法，创造新的体验。</span></a><div><span>DESIGN STAGE</span><a href="https://github.com/Loganwon/gamebridge">源码与设计 ↗</a><a href="#top">回到顶部 ↑</a></div></footer>
+      <section class="local-guide" id="local-guide" aria-labelledby="local-guide-title"><div><p class="eyebrow">RUN LOCALLY</p><h2 id="local-guide-title">制作发生在你的设备上。</h2><p>克隆项目并运行本地服务，在工作台中配置模型。公开网页用于预览与阅读说明，不接收 API Key。</p></div><div class="terminal-card"><span><i></i><i></i><i></i><small>TERMINAL</small></span><pre>git clone https://github.com/Loganwon/gamebridge.git
+cd gamebridge
+npm run dev</pre><p>需要 Node.js 24+ · 打开终端显示的本地网址</p></div></section>
+      <footer class="main-footer"><span>GameBridge <small>把想法变成可验证的 Mod 工程</small></span><div><a href="./docs/ai-mod-workbench.md">使用说明 ↗</a><a href="https://github.com/Loganwon/gamebridge">源码与进度 ↗</a></div></footer>
+    </main>
+  </div>
 </body>
 </html>

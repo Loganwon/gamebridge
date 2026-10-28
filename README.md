@@ -1,43 +1,38 @@
-# GameBridge
+# GameBridge — AI Mod 制作工作台
 
-把游戏 A 的角色、内容和玩法带进游戏 B，通过游戏适配器与本地桥接形成可玩的互动体验。
+用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 调用配置的模型，拆解需求、检查适配能力，生成并验证 Mod 工程。
 
-**当前为设计阶段。尚未实现游戏运行时、适配插件或任何实机互联。** 原先偏离目标的静态建筑转换器已从当前版本删除，线上页面改为设计方案展示；旧实现仅留在 Git 历史中。
+**当前版本 0.3 Alpha：已实现本地模型请求接口、需求计划校验、受限 SMAPI 源码草稿生成与 ZIP 下载。尚未进行真实云端调用、Mod 编译或游戏实机验收。** 当前模型负责规划，固定生成器负责源码；任意游戏、角色、资源与复杂招式的自动研发仍待实现。被拒绝的建筑转换器和 Glitch/Repixture 原型不在本版本中。
 
-[在线方案](https://loganwon.github.io/gamebridge/) · [GitHub](https://github.com/Loganwon/gamebridge) · [自动测试与发布](https://github.com/Loganwon/gamebridge/actions/workflows/check-and-deploy.yml)
+[公开页面](https://loganwon.github.io/gamebridge/) · [完整工具设计与使用说明](docs/ai-mod-workbench.md) · [GitHub](https://github.com/Loganwon/gamebridge)
 
-## 完整设计
+## 本地启动
 
-| 文档 | 内容 |
-| --- | --- |
-| [总体设计方案](docs/gameplay-bridge.md) | 产品定义、技术路线、模块职责、技术选型、范围、里程碑、风险和待决事项 |
-| [产品流程与实机验收](docs/product-and-validation.md) | 用户操作、界面状态、功能分期、组合兼容性、可玩与性能验收 |
-| [运行时与适配器协议](docs/runtime-protocol.md) | 能力协商、消息、状态归属、空间与时间、恢复、存档及扩展合约 |
-
-核心验收示例：A 的武器命中 B 的真实敌人，B 正确结算伤害并反击，A 收到受伤结果；切换控制、死亡恢复和重新载入后状态一致。网页模拟和配置文件导出不算完成。
-
-主路线是两款游戏同时运行的桥接，原生玩法包是后续独立路线。每个具体游戏、版本、方向与玩法组合均需要适配及验证；Minecraft × 艾尔登法环仅作研究参照，不代表首发组合或已支持游戏。
-
-## 本地阅读与预览
-
-需要 Node.js 24+，当前设计站无第三方依赖：
+需要 Node.js 24+，无第三方 npm 运行依赖。
 
 ```sh
 npm test
-npm run build
 npm run dev
 ```
 
-打开 `http://127.0.0.1:4173`。`site/` 是方案展示页，`docs/` 是详细文档；构建复制到 `dist/`，不会打包任何游戏文件。`npm test` 目前验证 GitHub 发布保护流程，不是游戏互联测试。旧 `convert` 命令、场景解析器、导入/导出界面、体素样例及对应测试均已移除。
+打开 `http://127.0.0.1:4173`。填写宿主、玩法来源及完整需求，然后配置模型并点击“分析需求”。只在点击后才发送需求文本。API Key 仅用于该次本地请求，不写入浏览器存储、下载包或项目文件。
 
-## GitHub 与持续更新
+也可复制 `.env.example` 为本地 `.env`，填写 `DEEPSEEK_API_KEY`。默认端点为 `https://api.deepseek.com`、模型 `deepseek-flash`；模型 ID 可修改。目前传输层支持同样在根路径提供 `/chat/completions` 的 HTTPS 云端接口，其他 API 形状需新增供应商适配。
 
-公开仓库为 [Loganwon/gamebridge](https://github.com/Loganwon/gamebridge)。`main` 每次推送后由 GitHub Actions 运行测试与构建，再更新 GitHub Pages；仓库已启用 Pages，并配置 `PAGES_ENABLED=true`。PR 只验证，不发布。
+没有 API Key 时，可点击“查看示例工程”。它使用固定示例，不调用模型，结果会明确标为 `example`。GitHub Pages 只展示界面和本地启动说明，模型配置和制作操作在本地服务中进行。
 
-`npm run github:publish` 使用已授权的官方 GitHub CLI，只从干净的 `main` 普通推送到经过校验的公开仓库，并比较远程提交。CLI 需在 `PATH` 中；本机已配置的副本在被 Git 忽略的 `.tools/bin/gh`。认证信息不会写入源码。GitHub CLI 授权不代表 Codex GitHub 插件已连接。
+## 当前产物与限制
 
-网站更新只更新方案与未来的兼容资料。未来游戏适配器使用独立版本和验收记录，不能随网站推送自动替换运行中的游戏插件。
+需求计划会保留原始请求，并将各项需求标为源码草稿可生成、需素材、需新适配或不支持。模型不能自行把“已编译”“已实机验证”写成通过。
 
-## 项目边界
+当前生成适配器仅输出 Stardew Valley / SMAPI 的源工程草稿，覆盖短时速度 Buff 和短时近战倍率 Buff。它们**不等同于来源游戏的完整冲刺控制器、武器模型或招式系统**。完整角色、动画、武器资源及 GTA 等宿主仍列为缺口；不会静默删掉这些要求或生成假的插件。
 
-通过官方或获允许的 Mod、插件、导入或编辑接口接入，不实现进程注入、内存修改或反作弊规避，不承诺零封禁。用户游戏资产、存档和凭据保留本地；只发布项目自身代码、设计及有权分发的示例。未知能力和未经验证的组合明确显示不支持或待验证。
+ZIP 包包含 C# 工程、清单、配置、完整计划、来源状态、验证报告与构建说明，不包含 DLL、游戏程序集或商业游戏素材。目标为 Stardew Valley 1.6.14+ / SMAPI 4.5.2+ / .NET 6，构建依赖固定为 ModBuildConfig 4.4.0；这些目标尚未在本机编译和实机验证。
+
+源码生成、静态检查、编译和真实游戏验收是独立阶段。目前停在源码静态检查；本机未检测到星露谷及所需引用。下一阶段需补充实际游戏环境和更完整的动作适配器。
+
+## 结构与持续更新
+
+`src/ai/` 是可替换的模型传输与计划校验，`src/generator/` 是宿主工程生成器，`src/workbench-server.mjs` 是仅监听本机的服务，`site/` 是工作台界面。`npm run build` 将静态页面与文档放入 `dist/`。公开网页不托管 API Key 或本地制作服务。
+
+每次项目改动按约定测试、构建、提交并普通推送；GitHub Actions 验证后更新 [GitHub Pages](https://loganwon.github.io/gamebridge/)。发布工具继续核对仓库身份、推送目标和远程提交，不上传用户游戏文件或凭据。网页部署成功不等于生成的 Mod 已通过游戏验证。

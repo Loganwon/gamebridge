@@ -1,5 +1,7 @@
 # GameBridge 产品、交付与验收设计
 
+> 本文记录旧玩法执行层的验收思路；自动化 AI 制作流程及当前实现状态以 [AI Mod 工作台](ai-mod-workbench.md) 为准。不能把本文件的未来实机阶段当作已完成结果。
+
 版本：Design 0.2。日期：2026-10-28（Asia/Shanghai）。本文描述拟实现产品，不代表已有游戏适配器或实机结果。整体架构见 [完整方案](gameplay-bridge.md)，消息与运行时约定见 [运行时协议设计](runtime-protocol.md)。
 
 ## 1. 产品目标与成功标准

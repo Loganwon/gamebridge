@@ -1,0 +1,122 @@
+import { validateRequest, validatePlan } from './plan.mjs';
+
+const DEFAULT_BASE_URL = 'https://api.deepseek.com';
+const MAX_RESPONSE_BYTES = 256 * 1024;
+const TIMEOUT_MS = 45000;
+export class ProviderError extends Error {
+  constructor(code, message) { super(message); this.name = 'ProviderError'; this.code = code; }
+}
+function invalid(message) { throw new ProviderError('INVALID_PROVIDER_CONFIG', message); }
+export function validateProviderConfig({ apiKey, baseUrl = DEFAULT_BASE_URL, model = 'deepseek-flash' } = {}) {
+  if (typeof apiKey !== 'string' || apiKey.length < 8 || apiKey.length > 512 || /[^\x21-\x7e]/.test(apiKey)) invalid('A valid API key is required.');
+  if (typeof model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(model)) invalid('Invalid model identifier.');
+  if (typeof baseUrl !== 'string' || baseUrl.length > 500) invalid('Invalid provider base URL.');
+  let url;
+  try { url = new URL(baseUrl); } catch { invalid('Invalid provider base URL.'); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) invalid('Provider base URL must be an HTTPS origin without a path, credentials or query.');
+  if (!url.hostname.includes('.') || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(url.hostname) || url.hostname.startsWith('[') || /(?:^|\.)(?:localhost|local|internal)$/.test(url.hostname)) invalid('Provider must use a public cloud hostname.');
+  return { apiKey, baseUrl: url.origin, model };
+}
+const SYSTEM_PROMPT = `You plan native game mods for GameBridge. The host game is the game whose world the user plays in; the source game supplies requested interactions. Preserve this direction and every user request, including parts that cannot be generated. Return one JSON object, no Markdown.
+This is a source-draft generator, not proof of compilation or game compatibility. Local validation alone decides capability statuses. Never claim a connection, compiled DLL or in-game verification.
+Current host generator: stardew-valley (SMAPI source project draft only). Current mechanics are speed_burst and melee_modifier. Any other host or feature needs a new adapter. Character, weapon and animation assets require licensed user-provided resources; do not invent or claim to have extracted them. Never suggest process injection, memory writes, anti-cheat evasion, or automatic online competitive modifications.
+Required JSON schema:
+{"schemaVersion":1,"title":"short title","hostGame":"same host ID as input","sourceGame":"same source ID as input","summary":"what is requested and what is missing","requirements":[{"id":"req-1","description":"one user requirement","capability":"speed_burst or melee_modifier or a descriptive snake_case capability","status":"needs_adapter","reason":"proposed explanation"}],"mechanics":[{"type":"speed_burst","key":"V","durationTicks":120,"cooldownTicks":300,"amount":2}],"assetRequirements":[],"limitations":[]}
+mechanics may only use speed_burst or melee_modifier, with unique types and uppercase single A-Z keys. speed_burst amount is an integer 1..6; melee_modifier amount is a multiplier 1..3. durationTicks is an integer 1..600; cooldownTicks is an integer >= durationTicks and <=3600. Use an empty mechanics array if no supported mechanic fits. Do not silently replace a complex request with these two generic features. List its remaining requirements and missing assets explicitly. Do not use original-request as a requirement ID; the local validator preserves the original text itself.`;
+
+export function buildProviderRequest(rawRequest, config) {
+  const request = validateRequest(rawRequest);
+  const settings = validateProviderConfig(config);
+  return {
+    url: `${settings.baseUrl}/chat/completions`,
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({ model: settings.model, messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: JSON.stringify(request) },
+      ], response_format: { type: 'json_object' }, max_tokens: 4000, stream: false }),
+      redirect: 'error',
+    }, request,
+  };
+}
+async function boundedText(response, signal) {
+  const length = response.headers?.get?.('content-length');
+  if (length !== null && length !== undefined && /^\d+$/.test(length) && Number(length) > MAX_RESPONSE_BYTES) throw new ProviderError('RESPONSE_TOO_LARGE', 'Provider response exceeded the size limit.');
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (signal.aborted) throw signal.reason;
+    if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) throw new ProviderError('RESPONSE_TOO_LARGE', 'Provider response exceeded the size limit.');
+    return text;
+  }
+  const reader = response.body.getReader();
+  let total = 0;
+  const chunks = [];
+  try {
+    while (true) {
+      if (signal.aborted) throw signal.reason;
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_RESPONSE_BYTES) throw new ProviderError('RESPONSE_TOO_LARGE', 'Provider response exceeded the size limit.');
+      chunks.push(value);
+    }
+    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+  } finally { await reader.cancel().catch(() => {}); }
+}
+function abortRace(signal) {
+  let handler;
+  const promise = new Promise((_, reject) => {
+    handler = () => reject(signal.reason || new Error('Aborted'));
+    if (signal.aborted) handler(); else signal.addEventListener('abort', handler, { once: true });
+  });
+  // A caller may already be cancelled before the operation reaches Promise.race.
+  promise.catch(() => {});
+  return { promise, dispose: () => signal.removeEventListener('abort', handler) };
+}
+
+export async function generatePlan(rawRequest, { apiKey, baseUrl = DEFAULT_BASE_URL, model = 'deepseek-flash', fetchImpl = fetch, signal } = {}) {
+  const call = buildProviderRequest(rawRequest, { apiKey, baseUrl, model });
+  if (typeof fetchImpl !== 'function') invalid('Invalid provider transport.');
+  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  const abort = abortRace(combined);
+  try {
+    if (combined.aborted) throw combined.reason;
+    const operation = (async () => {
+      const response = await fetchImpl(call.url, { ...call.options, signal: combined });
+      if (!response || typeof response.status !== 'number') throw new ProviderError('INVALID_RESPONSE', 'Provider returned an invalid response.');
+      if (response.status === 401 || response.status === 403) throw new ProviderError('PROVIDER_AUTH', 'Provider authentication failed. Check the configured key and permissions.');
+      if (response.status === 429) throw new ProviderError('PROVIDER_RATE_LIMIT', 'Provider rate limit or quota was reached.');
+      if (response.status < 200 || response.status >= 300) throw new ProviderError('PROVIDER_HTTP', 'Provider request failed. No provider response body was retained.');
+      let envelope;
+      try { envelope = JSON.parse(await boundedText(response, combined)); }
+      catch (error) { if (error instanceof ProviderError || combined.aborted) throw error; throw new ProviderError('INVALID_RESPONSE', 'Provider returned malformed JSON.'); }
+      if (!Array.isArray(envelope?.choices) || envelope.choices.length !== 1) throw new ProviderError('INVALID_RESPONSE', 'Provider returned an unexpected completion shape.');
+      const choice = envelope.choices[0];
+      if (choice?.finish_reason !== 'stop') throw new ProviderError('INCOMPLETE_RESPONSE', 'Provider did not finish the plan. Retry with a smaller request.');
+      if (typeof choice.message?.content !== 'string' || !choice.message.content.trim()) throw new ProviderError('EMPTY_RESPONSE', 'Provider returned an empty plan.');
+      let proposal;
+      try { proposal = JSON.parse(choice.message.content); }
+      catch { throw new ProviderError('INVALID_PLAN', 'Provider returned an invalid JSON plan.'); }
+      let plan;
+      try { plan = validatePlan(proposal, call.request); }
+      catch { throw new ProviderError('INVALID_PLAN', 'Provider plan failed local schema or capability checks.'); }
+      // Successful completions are untrusted too: never retain an echoed credential
+      // in a plan, source file or download. Match JSON's escaping of punctuation.
+      if (JSON.stringify(plan).includes(JSON.stringify(apiKey).slice(1, -1))) {
+        throw new ProviderError('CREDENTIAL_IN_RESPONSE', 'Provider plan contained a credential and was discarded.');
+      }
+      return plan;
+    })();
+    return await Promise.race([operation, abort.promise]);
+  } catch (error) {
+    if (combined.aborted) {
+      const timedOut = timeout.aborted || combined.reason?.name === 'TimeoutError';
+      throw new ProviderError(timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_CANCELLED', timedOut ? 'Provider request timed out.' : 'Provider request was cancelled.');
+    }
+    if (error instanceof ProviderError) throw error;
+    // Fetch exceptions may include credentials or URLs; never propagate their text.
+    throw new ProviderError('PROVIDER_NETWORK', 'Could not reach the configured model provider.');
+  } finally { abort.dispose(); }
+}
