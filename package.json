@@ -1,15 +1,14 @@
 {
   "name": "gamebridge",
-  "version": "0.1.0",
+  "version": "0.2.0-design.1",
   "private": true,
   "type": "module",
-  "description": "Offline voxel scene conversion for Minecraft, Roblox Studio and Godot",
+  "description": "Design specification for cross-game content and gameplay bridging",
   "engines": { "node": ">=24" },
   "scripts": {
     "test": "node --test",
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && node scripts/serve.mjs",
-    "convert": "node scripts/convert.mjs",
     "github:publish": "node scripts/publish-github.mjs"
   }
 }

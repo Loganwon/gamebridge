@@ -25,7 +25,7 @@ try {
     const existing = spawnSync('gh', ['repo', 'view', repo, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' });
     if (existing.status === 0) throw new Error(`${repo} already exists. Inspect it and set origin explicitly before running again.`);
     // GitHub checks name availability; creation errors never fall through to a push.
-    run('gh', ['repo', 'create', repo, '--public', '--description', 'Offline voxel scene converter for Minecraft, Roblox Studio and Godot', '--source', '.', '--remote', 'origin']);
+    run('gh', ['repo', 'create', repo, '--public', '--description', 'Cross-game content and gameplay bridging — design phase', '--source', '.', '--remote', 'origin']);
   }
   const visibility = run('gh', ['repo', 'view', repo, '--json', 'visibility', '--jq', '.visibility'], { quiet: true });
   if (visibility !== 'PUBLIC') throw new Error('Target repository is not public; visibility was not changed.');
