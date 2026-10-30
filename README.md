@@ -4,7 +4,13 @@
 
 **当前版本 0.4.1 Alpha：受限代码已在 macOS 操作系统沙盒中通过 21 个契约场景、75 条断言；故意写错的行为也被识别。真实 DeepSeek 生成与编译错误修复经过验证，但本轮新的需求分析出现格式失败，尚不能认为工具稳定可用。真实 Mod 编译及游戏实测仍未验收。** 模拟器通过不等于游戏 API 正确或 Mod 可玩。[沙盒报告（含失败记录）](docs/sandbox-verification.md) · [此前语法验收](docs/deepseek-pipeline-acceptance.md)
 
-[公开预览](https://loganwon.github.io/gamebridge/) · [工具设计与使用说明](docs/ai-mod-workbench.md) · [GitHub](https://github.com/Loganwon/gamebridge)
+[公开预览](https://loganwon.github.io/gamebridge/) · [产品目标与开发规划](docs/product-plan.md) · [工具使用与实现状态](docs/ai-mod-workbench.md) · [GitHub](https://github.com/Loganwon/gamebridge)
+
+## 产品目标与首版门槛
+
+面向会安装 Mod、希望用自然语言改造单机动作体验的玩家，交付能影响宿主真实敌人与世界的玩法。首版目标是一个宿主、一个来源武器动作片段，覆盖攻击时序、连击或蓄力、闪避或取消、资源和中断；再证明至少三种不同需求及一次修改能自动制作并通过真实游戏验收。现有两种 Buff 继续作为管线测试能力。
+
+后续采用来源玩法规格、宿主能力与受约束动作规则，再生成宿主原生 Mod。新宿主需先通过真实能力探针；Bannerlord 是优先研究候选，尚未接入，精确游戏组合尚未冻结。[完整规划及开发阶段](docs/product-plan.md)
 
 ## 本地启动与 DeepSeek
 
