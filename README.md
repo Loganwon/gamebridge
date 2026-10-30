@@ -2,7 +2,7 @@
 
 用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 将需求转为动作规则，检查素材和宿主接口缺口，逐步完成原生 Mod 制作与真实游戏验收。
 
-**当前版本 0.5.0 Alpha：新增动作规则设计、确定性回放和宿主能力门控。支持命中条件连段、取消、体力和受击中断的规则表达；尚无已验证动作宿主，不能生成可安装的动作 Mod。** 闪避目前只是规则状态，没有实际位移、动画或碰撞。现有 SMAPI 源码、编译与修复保留为单独管线测试。[动作规则说明](docs/action-rules.md) · [本轮验收](docs/action-workbench-acceptance.md)
+**当前版本 0.5.1 Alpha：修复跨供应商密钥复用、旧分析取消、蓝图复验预算、命中连段回放与 SMAPI 守卫检查。** 支持动作规则设计与有限回放；尚无已验证动作宿主，不能生成可安装的动作 Mod。闪避目前只是规则状态，没有实际位移、动画或碰撞。现有 SMAPI 源码、编译与修复保留为单独管线测试。[审查修复与下一轮方向](docs/review-fixes.md) · [动作规则说明](docs/action-rules.md) · [此前动作验收](docs/action-workbench-acceptance.md)
 
 此前 SMAPI 自有模拟器在 OS 沙盒通过 21 场景、75 断言，但该轮新分析曾出现格式失败；失败记录继续保留。真实 Mod 编译及游戏实测仍未验收。[历史沙盒报告](docs/sandbox-verification.md)
 
@@ -24,6 +24,8 @@ npm run dev
 ```
 
 打开 `http://127.0.0.1:4173`。将 `.env.example` 复制为本地 `.env`，填写 `DEEPSEEK_API_KEY`，或在工作台模型设置中临时输入。配置后重启本地服务。默认端点 `https://api.deepseek.com`，模型 `deepseek-flash`；可改为账号支持的型号。密钥不进入 Git、下载包、浏览器存储或编译子进程。
+
+默认 Key 仅用于配置的 API origin。切换域名或端口后需要填写对应 Key；界面会清除手动旧 Key，后端也会阻断默认密钥跨 origin 复用。
 
 首页输入宿主、玩法来源和完整需求，点击“AI 分析并设计动作规则”；也可不调用 AI，回放三种自有规则示例。导出的是设计 JSON。[动作规则与宿主门控](docs/action-rules.md) · [何时准备游戏环境](docs/host-environment.md)
 

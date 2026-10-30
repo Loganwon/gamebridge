@@ -2,7 +2,7 @@ import { validateActionBlueprint, ACTION_BLUEPRINT_LIMITS } from './spec.mjs';
 
 // Documentation and user-supplied metadata never establish a working host adapter.
 // This module performs no I/O and intentionally has no route to a passed state.
-const LIMITS = Object.freeze({ bytes: ACTION_BLUEPRINT_LIMITS.maxBytes, nodes: 4096, depth: 12,
+const LIMITS = Object.freeze({ bytes: ACTION_BLUEPRINT_LIMITS.maxNormalizedBytes, nodes: 4096, depth: 12,
   actions: ACTION_BLUEPRINT_LIMITS.maxActions, requirements: ACTION_BLUEPRINT_LIMITS.maxRequirements });
 const HOSTS = [
   {

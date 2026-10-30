@@ -117,6 +117,86 @@ test('explicit writes and aliases cannot force-enable or replace the opt-in conf
   assert.equal(validateModCode(proposal()).files[0].content, original);
 });
 
+test('fixed handler guards reject ineffective conditions, empty branches and relocated checks', () => {
+  const buttonGuard = 'if (!this.Config.Enabled || !Context.IsWorldReady || !Context.IsPlayerFree || Context.IsMultiplayer)\n            return;';
+  const updateGuard = 'if (!this.Config.Enabled || Context.IsMultiplayer || Game1.activeClickableMenu is not null || Game1.eventUp || Game1.player.health <= 0)';
+  for (const change of [
+    source => source.replaceAll('!this.Config.Enabled', '(!this.Config.Enabled && false)'),
+    source => source.replaceAll('Context.IsMultiplayer', '(Context.IsMultiplayer && false)'),
+    source => source.replaceAll('!this.Config.Enabled', '(!this.Config.Enabled || true)'),
+    source => source.replaceAll('!this.Config.Enabled', '(true && !this.Config.Enabled)'),
+    source => source.replace(buttonGuard, buttonGuard.replace('return;', '{}')),
+    source => source.replace(buttonGuard, buttonGuard.replace('return;', '{} else return;')),
+    source => source.replace(buttonGuard, 'if (true) { ' + buttonGuard + ' }'),
+    source => source.replace(buttonGuard, 'this.RemoveOwnBuffs();\n' + buttonGuard),
+    source => source.replace('            this.RemoveOwnBuffs();\n            return;', '            return;\n            this.RemoveOwnBuffs();'),
+    source => source.replace(updateGuard, updateGuard.replace('Context.IsMultiplayer', '!Context.IsMultiplayer')),
+    source => source.replace('if (!Context.IsWorldReady)\n            return;', 'if (!Context.IsWorldReady) {}'),
+    source => source.replace(buttonGuard, '').replace('private void ResetSession()\n    {', 'private void ResetSession()\n    {\n        ' + buttonGuard),
+  ]) {
+    const changed = change(original);
+    assert.notEqual(changed, original, 'the mutation must exercise an actual guard change');
+    assert.throws(() => validateModCode(proposal(changed)), error => error.code === 'INVALID_CODE');
+  }
+  const bracedGuard = original.replace(buttonGuard, buttonGuard.replace('return;', '{ return; }'));
+  assert.equal(validateModCode(proposal(bracedGuard)).files[0].content, bracedGuard);
+});
+
+test('all C# single-line comment endings preserve normal guards without hiding preceding code', () => {
+  const guard = '        if (!this.Config.Enabled || !Context.IsWorldReady || !Context.IsPlayerFree || Context.IsMultiplayer)';
+  const logLiteral = '"GameBridge source draft loaded. Review config.json and validate in a new single-player save."';
+  for (const [name, ending] of [['LF', '\n'], ['CR', '\r'], ['NEL', '\u0085'], ['LS', '\u2028'], ['PS', '\u2029'], ['CRLF', '\r\n']]) {
+    const normal = original.replace(guard, '        // ordinary comment' + ending + guard);
+    assert.equal(validateModCode(proposal(normal)).files[0].content, normal, name + ': normal comments preserve source text');
+    const hidden = original.replace(guard, '        // hidden' + ending + 'this.RemoveOwnBuffs();\n' + guard);
+    assert.throws(() => validateModCode(proposal(hidden)), { code: 'INVALID_CODE' }, name + ': pre-guard code must remain visible');
+    const literal = original.replace(logLiteral, '@"// literal text' + ending + 'Game1.player.health = 100;"');
+    assert.equal(validateModCode(proposal(literal)).files[0].content, literal, name + ': verbatim string contents stay literal and unchanged');
+  }
+});
+
+test('fixed source shell rejects alternate callbacks and effects before the guarded handlers', () => {
+  const wiring = 'helper.Events.Input.ButtonPressed += this.OnButtonPressed;';
+  const configRead = 'this.Config = helper.ReadConfig<ModConfig>();';
+  for (const changed of [
+    original.replace(wiring, wiring + '\n        helper.Events.Input.ButtonPressed += (_, e) => this.RemoveOwnBuffs();'),
+    original.replace(wiring, 'helper.Events.Input.ButtonPressed += (_, e) => this.RemoveOwnBuffs();'),
+    original.replace(configRead, configRead + '\n        Game1.player.health = 100;'),
+    original.replace('private const string BuffPrefix', 'private object Extra = Game1.player;\n    private const string BuffPrefix'),
+    original.replace('private void ResetSession()\n    {', 'public ModEntry() { Game1.player.health = 100; }\n    private void ResetSession()\n    {'),
+    original.replace('        this.RemoveOwnBuffs();\n        foreach (Mechanic mechanic', '        Game1.player.health = 100;\n        this.RemoveOwnBuffs();\n        foreach (Mechanic mechanic'),
+    original.replace('        foreach (Mechanic mechanic in this.Mechanics)\n        {', '        goto skip;\n        skip: foreach (Mechanic mechanic in this.Mechanics)\n        {'),
+    original.replace('        foreach (Mechanic mechanic in this.Mechanics)\n        {', '        Action later = () => this.RemoveOwnBuffs();\n        foreach (Mechanic mechanic in this.Mechanics)\n        {'),
+    original.replace('        foreach (Mechanic mechanic in this.Mechanics)\n        {', '        var events = this.Helper.Events;\n        foreach (Mechanic mechanic in this.Mechanics)\n        {'),
+  ]) assert.throws(() => validateModCode(proposal(changed)), error => error.code === 'INVALID_CODE');
+});
+
+test('fixed guard profile retains equivalent named lifecycle callbacks used by accepted model source', () => {
+  let named = original
+    .replace('helper.Events.GameLoop.Saving += (_, _) => this.RemoveOwnBuffs();', 'helper.Events.GameLoop.Saving += this.OnSaving;')
+    .replace('helper.Events.GameLoop.ReturnedToTitle += (_, _) => this.ResetSession();', 'helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;')
+    .replace('helper.Events.Player.Warped += (_, e) => { if (e.IsLocalPlayer) this.RemoveOwnBuffs(); };', 'helper.Events.Player.Warped += this.OnWarped;');
+  const callbacks = `private void OnSaving(object? sender, SavingEventArgs e) { this.RemoveOwnBuffs(); }
+    private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e) { this.ResetSession(); }
+    private void OnWarped(object? sender, WarpedEventArgs e) { if (e.IsLocalPlayer) this.RemoveOwnBuffs(); }
+    `;
+  named = named.replace('private void OnButtonPressed', callbacks + 'private void OnButtonPressed');
+  assert.equal(validateModCode(proposal(named)).files[0].content, named);
+  assert.throws(() => validateModCode(proposal(named.replace('SavingEventArgs e) { this.RemoveOwnBuffs();', 'SavingEventArgs e) { Game1.player.health = 100;'))), /guards/);
+  assert.throws(() => validateModCode(proposal(named.replace('helper.Events.GameLoop.Saving += this.OnSaving;', 'helper.Events.GameLoop.Saving += this.OnButtonPressed;'))), /guards/);
+});
+
+test('a generated guard violation stops after one call and an invalid input guard stops before repair', async () => {
+  const invalidGuard = original.replaceAll('!this.Config.Enabled', '(!this.Config.Enabled && false)');
+  let calls = 0;
+  const options = { apiKey: KEY, fetchImpl: async () => { calls++; return completion(proposal(invalidGuard)); } };
+  await assert.rejects(generateModCode({ plan, files }, options), { code: 'INVALID_CODE' });
+  assert.equal(calls, 1, 'an unsafe guard result must not trigger a paid retry');
+  const input = files.map(file => file.path === 'ModEntry.cs' ? { ...file, content: invalidGuard } : file);
+  await assert.rejects(repairModCode({ plan, files: input, diagnostics: [{ code: 'CS1002', severity: 'error', message: '; expected' }], attempt: 1 }, options), { code: 'INVALID_CODE' });
+  assert.equal(calls, 1, 'an invalid guard in repair context must be rejected before networking');
+});
+
 test('code errors, successful credential echoes and credentials embedded in inputs never leak', async () => {
   for (const response of [ { ...proposal(), summary: KEY }, proposal(original.replace('GameBridge source draft loaded', KEY)) ]) {
     await assert.rejects(generateModCode({ plan, files }, { apiKey: KEY, fetchImpl: async () => completion(response) }), error => {

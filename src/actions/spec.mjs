@@ -1,10 +1,11 @@
 import { validateRequest } from '../ai/plan.mjs';
 
 export const ACTION_BLUEPRINT_LIMITS = Object.freeze({
-  maxBytes: 64 * 1024, maxActions: 16, maxRequirements: 32, maxEntryActions: 8,
+  maxBytes: 64 * 1024, maxNormalizedBytes: 80 * 1024,
+  maxActions: 16, maxRequirements: 32, maxEntryActions: 8,
   maxTransitionsPerAction: 8, maxActionTicks: 600, maxStamina: 1000,
   maxRegenPerTick: 20, maxScenarioTicks: 3600, maxScenarioEvents: 256,
-  maxTraceEntries: 2048,
+  maxTraceEntries: 2048, maxGeneratedScenarios: 64,
 });
 
 const LOCAL_FIELDS = ['originalRequest', 'scope', 'sourceVerification', 'realModBuild', 'game', 'readyToInstall', 'coverage'];
@@ -49,7 +50,7 @@ function identifier(value, label, expression = ID) {
 function bool(value, label) { if (typeof value !== 'boolean') fail(`Invalid ${label}.`); return value; }
 function texts(raw, label, max, length) { return actionArray(raw, label, max).map(item => actionText(item, label, length, true)); }
 function unique(values, label) { if (new Set(values).size !== values.length) fail(`Duplicate ${label}.`); }
-function boundedJson(raw) {
+function boundedJson(raw, maxBytes = ACTION_BLUEPRINT_LIMITS.maxBytes) {
   const stack = [[raw, 0]];
   const seen = new Set();
   let nodes = 0;
@@ -74,12 +75,22 @@ function boundedJson(raw) {
   }
   let json;
   try { json = JSON.stringify(raw); } catch { fail('Action blueprint must be finite JSON.'); }
-  if (new TextEncoder().encode(json).byteLength > ACTION_BLUEPRINT_LIMITS.maxBytes) fail('Action blueprint exceeds 64 KiB.');
+  if (new TextEncoder().encode(json).byteLength > maxBytes) fail(`Action blueprint exceeds ${maxBytes / 1024} KiB.`);
+}
+function proposalData(raw) {
+  return Object.fromEntries(PROPOSAL_FIELDS.filter(field => Object.hasOwn(raw, field)).map(field => [field, raw[field]]));
+}
+function boundedBlueprint(raw) {
+  const normalized = LOCAL_FIELDS.some(field => Object.hasOwn(raw, field));
+  boundedJson(raw, normalized ? ACTION_BLUEPRINT_LIMITS.maxNormalizedBytes : ACTION_BLUEPRINT_LIMITS.maxBytes);
+  // Local metadata has its own finite allowance. It cannot hide model data
+  // outside the unchanged proposal budget or bypass local-state verification.
+  if (normalized) boundedJson(proposalData(raw));
 }
 
 export function serializeActionProposal(blueprint) {
   actionObject(blueprint, [...PROPOSAL_FIELDS, ...LOCAL_FIELDS], 'action blueprint');
-  boundedJson(blueprint);
+  boundedBlueprint(blueprint);
   // Serialization is not a way to erase forged locally determined state.
   if (LOCAL_FIELDS.some(field => Object.hasOwn(blueprint, field))) validateActionBlueprint(blueprint, blueprint.originalRequest);
   const proposal = {};
@@ -92,7 +103,7 @@ export function serializeActionProposal(blueprint) {
 export function validateActionBlueprint(raw, rawRequest) {
   const request = validateRequest(rawRequest);
   actionObject(raw, [...PROPOSAL_FIELDS, ...LOCAL_FIELDS], 'action blueprint');
-  boundedJson(raw);
+  boundedBlueprint(raw);
   if (raw.schemaVersion !== 1) fail('Unsupported action blueprint schema version.');
   const title = actionText(raw.title, 'action blueprint title', 120);
   const direction = validateRequest({ hostGame: raw.hostGame, sourceGame: raw.sourceGame, description: request.description });
@@ -107,6 +118,7 @@ export function validateActionBlueprint(raw, rawRequest) {
     if (url.protocol !== 'https:' || url.username || url.password || url.hash || !url.hostname.includes('.') ||
         /^(?:\d{1,3}\.){3}\d{1,3}$/.test(url.hostname) || url.hostname.startsWith('[') ||
         /(?:^|\.)(?:localhost|local|internal)$/.test(url.hostname)) fail('Source reference must be a public HTTPS URL without credentials or fragment.');
+    if (url.href.length > 500) fail('Normalized source reference exceeds its limit.');
     source.references.push(url.href);
   }
   unique(source.references, 'source references');
@@ -195,8 +207,13 @@ export function validateActionBlueprint(raw, rawRequest) {
   for (const key of LOCAL_FIELDS) {
     if (Object.hasOwn(raw, key) && JSON.stringify(raw[key]) !== JSON.stringify(local[key])) fail(`Invalid locally determined ${key}.`);
   }
-  return { schemaVersion: 1, title, hostGame: request.hostGame, hostVersion, sourceGame: request.sourceGame, source,
+  const result = { schemaVersion: 1, title, hostGame: request.hostGame, hostVersion, sourceGame: request.sourceGame, source,
     requirements, stamina, entryActions, actions, assetRequirements, limitations, ...local };
+  // Canonical URLs and the mandatory limitation may expand a proposal. Check
+  // the returned form now so every accepted result can be revalidated later.
+  boundedJson(proposalData(result));
+  boundedJson(result, ACTION_BLUEPRINT_LIMITS.maxNormalizedBytes);
+  return result;
 }
 
 function exampleProposal(variant) {

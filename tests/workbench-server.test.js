@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { createWorkbenchServer } from '../src/workbench-server.mjs';
 import { createExamplePlan } from '../src/ai/plan.mjs';
 import { generateProject } from '../src/generator/smapi.mjs';
+import { createActionExample } from '../src/actions/spec.mjs';
 
 async function fixture(options,run) {
   const server=createWorkbenchServer(options);server.listen(0,'127.0.0.1');await once(server,'listening');
@@ -137,5 +138,91 @@ test('request text containing either configured credential is rejected before a 
       const body=await response.text();assert.ok(!body.includes(environmentKey));assert.ok(!body.includes(transientKey));
     }
     assert.equal(calls,0);
+  });
+});
+
+test('all paid endpoints reject a new origin without its own credential before invoking a provider', async () => {
+  const secret = 'default-origin-http-test-key'; let calls = 0;
+  await fixture({ apiKey: secret,
+    planGenerator: async () => { calls++; return createExamplePlan(); },
+    actionPlanGenerator: async () => { calls++; return createActionExample().blueprint; },
+    pipelineDependencies: { generate: async () => { calls++; throw new Error('must not generate'); } },
+  }, async ({ post }) => {
+    const plan = await (await post('/api/example')).json();
+    for (const [route, payload] of [
+      ['/api/plan', { request: { hostGame: '星露谷', sourceGame: '泰拉瑞亚', description: '动作交互' } }],
+      ['/api/action-plans', { request: createActionExample().request }],
+      ['/api/jobs', { planId: plan.id, mode: 'source', maxRepairs: 0 }],
+    ]) {
+      for (const origin of ['https://other-provider.example', 'https://api.deepseek.com:444']) {
+        const response = await post(route, { ...payload, provider: { baseUrl: origin, apiKey: '' } });
+        assert.equal(response.status, 400);
+        const text = await response.text();
+        assert.ok(!text.includes(secret));
+        assert.equal(JSON.parse(text).error.code, 'PROVIDER_KEY_REQUIRED_FOR_ORIGIN');
+      }
+    }
+    assert.equal(calls, 0);
+  });
+});
+
+test('same-origin defaults and explicit replacement keys are selected consistently by all paid endpoints', async () => {
+  const defaultKey = 'original-origin-http-test-key', replacementKey = 'replacement-origin-http-test-key';
+  const seen = [];
+  const note = options => seen.push({ key: options.apiKey, origin: options.baseUrl });
+  const source = generateProject(createExamplePlan()).files.find(file => file.path === 'ModEntry.cs');
+  await fixture({ apiKey: defaultKey,
+    planGenerator: async (_request, options) => { note(options); return createExamplePlan(); },
+    actionPlanGenerator: async (_request, options) => { note(options); return createActionExample().blueprint; },
+    pipelineDependencies: { generate: async (_input, options) => { note(options); return { files: [source], summary: 'Injected source for credential routing regression.' }; } },
+  }, async ({ base, post }) => {
+    const plan = await (await post('/api/example')).json();
+    for (const provider of [
+      { baseUrl: 'https://API.DEEPSEEK.com:443/', apiKey: '' },
+      { baseUrl: 'https://other-provider.example', apiKey: replacementKey },
+    ]) {
+      const legacy = await post('/api/plan', { request: { hostGame: '星露谷', sourceGame: '泰拉瑞亚', description: '动作交互' }, provider });
+      assert.equal(legacy.status, 200, await legacy.clone().text()); await legacy.json();
+      const action = await post('/api/action-plans', { request: createActionExample().request, provider });
+      assert.equal(action.status, 200, await action.clone().text()); await action.json();
+      const response = await post('/api/jobs', { planId: plan.id, mode: 'source', maxRepairs: 0, provider });
+      assert.equal(response.status, 202);
+      const job = await finishJob(base, (await response.json()).id);
+      assert.equal(job.status, 'generated');
+      const text = JSON.stringify(job);
+      assert.ok(!text.includes(defaultKey)); assert.ok(!text.includes(replacementKey));
+    }
+    assert.deepEqual(seen, [
+      ...Array.from({ length: 3 }, () => ({ key: defaultKey, origin: 'https://api.deepseek.com' })),
+      ...Array.from({ length: 3 }, () => ({ key: replacementKey, origin: 'https://other-provider.example' })),
+    ]);
+  });
+});
+
+test('disconnected legacy analysis discards late provider results and releases its running slot', async () => {
+  let calls = 0, release, markStarted, providerSignal, lateReads = 0;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const latePlan = new Proxy(createExamplePlan(), { ownKeys(target) { lateReads++; return Reflect.ownKeys(target); } });
+  await fixture({ apiKey: 'legacy-cancel-regression-key', planGenerator: async (_request, options) => {
+    calls++;
+    if (calls > 1) return createExamplePlan();
+    providerSignal = options.signal;
+    markStarted();
+    await new Promise(resolve => { release = resolve; });
+    return latePlan;
+  } }, async ({ base, post }) => {
+    const request = { hostGame: '星露谷', sourceGame: '泰拉瑞亚', description: '动作交互' };
+    const controller = new AbortController();
+    const pending = fetch(base + '/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request }), signal: controller.signal });
+    const rejected = assert.rejects(pending, { name: 'AbortError' });
+    await started;
+    const observedAbort = once(providerSignal, 'abort');
+    controller.abort(); await observedAbort;
+    release(); await rejected;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(lateReads, 0, 'cancelled legacy output must never reach serialization or storage');
+    const response = await post('/api/plan', { request });
+    assert.equal(response.status, 200, await response.clone().text()); await response.json();
+    assert.equal(calls, 2);
   });
 });

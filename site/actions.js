@@ -6,6 +6,9 @@ const $ = id => document.getElementById(id);
 const localOrigin = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const fields = ['host', 'source', 'description', 'base-url', 'model', 'api-key'];
 let serviceReady = false;
+let providerConfigured = false;
+let configuredProviderOrigin = null;
+let displayedProviderOrigin = null;
 let busy = false;
 let state = null;
 let downloadUrl = null;
@@ -14,6 +17,15 @@ let revision = 0;
 const labels = { rule: '规则已描述', needs_assets: '需要资源', needs_adapter: '需要适配', unsupported: '当前不支持' };
 const ignoredLabels = { insufficient_stamina: '体力不足', no_entry: '该输入没有起始动作', no_transition: '当前阶段不允许这次切换', hit_required: '尚未满足命中条件' };
 const phaseLabels = { idle: '空闲', startup: '起手', active: '命中窗口', recovery: '后摇', dodge: '闪避' };
+function usesConfiguredProvider() {
+  try { return new URL($('base-url').value.trim()).origin === configuredProviderOrigin; }
+  catch { return false; }
+}
+function updateCredentialHint() {
+  $('key-status').textContent = providerConfigured
+    ? (usesConfiguredProvider() ? '本地已配置此地址的密钥；可留空' : '地址已更改，请填写对应的 API Key')
+    : '仅在本次请求使用';
+}
 function el(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = String(text);
@@ -90,7 +102,14 @@ async function post(url, data, signal) {
   if (!response.ok) throw new Error(result.error?.message || '本地分析未完成。');
   return result;
 }
-for (const id of fields) $(id).addEventListener('input', () => { if (!busy) resetResult(); });
+for (const id of fields) $(id).addEventListener('input', () => { if (!busy) resetResult(); updateCredentialHint(); });
+$('base-url').addEventListener('input', () => {
+  let origin = null;
+  try { origin = new URL($('base-url').value.trim()).origin; } catch {}
+  if (origin !== displayedProviderOrigin) $('api-key').value = '';
+  displayedProviderOrigin = origin;
+  updateCredentialHint();
+});
 for (const button of document.querySelectorAll('[data-variant]')) button.addEventListener('click', () => {
   try {
     resetResult();
@@ -104,6 +123,12 @@ for (const button of document.querySelectorAll('[data-variant]')) button.addEven
 $('action-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (busy || !serviceReady) return;
+  if (!$('api-key').value.trim() && !(providerConfigured && usesConfiguredProvider())) {
+    $('model-settings').open = true;
+    $('api-key').focus();
+    errorText(new Error('请填写当前 API 地址对应的密钥；本地默认密钥只用于原配置地址。'));
+    return;
+  }
   resetResult();
   const currentRevision = revision;
   controller = new AbortController();
@@ -155,7 +180,10 @@ async function connect() {
     if (!config.defaultProvider || typeof config.defaultProvider.baseUrl !== 'string' || typeof config.defaultProvider.model !== 'string') throw new Error('Incomplete local configuration.');
     $('base-url').value = config.defaultProvider.baseUrl;
     $('model').value = config.defaultProvider.model;
-    $('key-status').textContent = config.providerConfigured ? '本地 .env 已配置；可留空' : '仅在本次请求使用';
+    configuredProviderOrigin = new URL(config.defaultProvider.baseUrl).origin;
+    displayedProviderOrigin = configuredProviderOrigin;
+    providerConfigured = config.providerConfigured === true;
+    updateCredentialHint();
     $('model-settings').hidden = false;
     $('connection').textContent = '本地工作台已连接';
     $('runtime-notice').textContent = '可调用本机配置的模型设计动作规则；一次调用，无自动重试。真实动作宿主尚未接入，仍不能生成可安装的动作 Mod。';

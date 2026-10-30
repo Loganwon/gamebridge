@@ -21,6 +21,30 @@ export function validateProviderConfig({ apiKey, baseUrl = DEFAULT_BASE_URL, mod
   if (!url.hostname.includes('.') || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(url.hostname) || url.hostname.startsWith('[') || /(?:^|\.)(?:localhost|local|internal)$/.test(url.hostname)) invalid('Provider must use a public cloud hostname.');
   return { apiKey, baseUrl: url.origin, model };
 }
+
+/** Environment credentials belong to their configured origin, never a new URL. */
+export function resolveProviderConfig(override = {}, defaults = {}) {
+  if (!override || typeof override !== 'object' || Array.isArray(override) ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(override)) ||
+      Reflect.ownKeys(override).some(key => typeof key !== 'string' || !['apiKey', 'baseUrl', 'model'].includes(key)) ||
+      Object.values(Object.getOwnPropertyDescriptors(override)).some(item => !Object.hasOwn(item, 'value'))) invalid('Invalid provider selection.');
+  for (const name of ['apiKey', 'baseUrl', 'model']) {
+    if (Object.hasOwn(override, name) && typeof override[name] !== 'string') invalid('Provider selection fields must be strings.');
+  }
+  const baseUrl = override.baseUrl || defaults.baseUrl || DEFAULT_BASE_URL;
+  const model = override.model || defaults.model || 'deepseek-flash';
+  if (override.apiKey) return validateProviderConfig({ apiKey: override.apiKey, baseUrl, model });
+  if (!defaults.apiKey) throw new ProviderError('API_KEY_REQUIRED', '请在本地填写 API Key，或配置默认供应商的密钥。');
+  // Validate and canonicalize addresses without ever associating the real key
+  // with the new destination until the origins have been compared.
+  const originOnlyKey = 'origin-validation-placeholder';
+  const requested = validateProviderConfig({ apiKey: originOnlyKey, baseUrl, model });
+  const configured = validateProviderConfig({ apiKey: originOnlyKey, baseUrl: defaults.baseUrl || DEFAULT_BASE_URL, model });
+  if (requested.baseUrl !== configured.baseUrl) {
+    throw new ProviderError('PROVIDER_KEY_REQUIRED_FOR_ORIGIN', 'API 地址已更改，请填写该地址对应的 API Key；本地默认密钥不会发送到其他地址。');
+  }
+  return validateProviderConfig({ apiKey: defaults.apiKey, baseUrl: requested.baseUrl, model });
+}
 const SYSTEM_PROMPT = `You plan native game mods for GameBridge. The host game is the game whose world the user plays in; the source game supplies requested interactions. Preserve this direction and every user request, including parts that cannot be generated. Return one JSON object, no Markdown.
 This is a source-draft generator, not proof of compilation or game compatibility. Local validation alone decides capability statuses. Never claim a connection, compiled DLL or in-game verification. Write titles, summaries, requirement descriptions and limitations in the language of the user's description.
 Current host generator: stardew-valley (SMAPI source project draft only). Current mechanics are speed_burst and melee_modifier. Any other host or feature needs a new adapter. Character, weapon and animation assets require licensed user-provided resources; do not invent or claim to have extracted them. Never suggest process injection, memory writes, anti-cheat evasion, or automatic online competitive modifications.

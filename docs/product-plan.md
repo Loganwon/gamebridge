@@ -1,6 +1,6 @@
 # GameBridge 产品目标与开发规划
 
-规划日期：2026-10-30（Asia/Shanghai）。本文定义后续产品方向和交付门槛；当前代码为 0.5.0 Alpha，已增加动作规则基础，进展见 [工作台说明](ai-mod-workbench.md) 和 [动作验收记录](action-workbench-acceptance.md)。完整动作 Mod 首版仍为开发目标。
+规划日期：2026-10-30（Asia/Shanghai）。本文定义后续产品方向和交付门槛；当前代码为 0.5.1 Alpha，已增加动作规则基础并修复审查缺陷，进展见 [工作台说明](ai-mod-workbench.md)、[审查修复](review-fixes.md) 和 [此前动作验收](action-workbench-acceptance.md)。完整动作 Mod 首版仍为开发目标。
 
 GameBridge 面向想改造单机游戏体验的玩家：玩家描述“在宿主游戏 A 中，使用来源游戏 B 的某组角色、武器或动作交互”，工具判断可行性，生成适配宿主的 Mod，并用真实游戏中的表现验证需求。核心交付是玩家可以操作、能影响宿主真实对象的玩法。源码、构建包和报告是实现这一交付的过程与证据。
 

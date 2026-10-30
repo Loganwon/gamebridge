@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { generatePlan, validateProviderConfig } from './ai/provider.mjs';
+import { generatePlan, resolveProviderConfig } from './ai/provider.mjs';
 import { validateRequest, createExamplePlan } from './ai/plan.mjs';
 import { generateProject } from './generator/smapi.mjs';
 import { sourceZip } from './zip.mjs';
@@ -66,7 +66,7 @@ export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=proces
       if(url.pathname==='/api/action-plans'&&req.method==='POST') {
         const input=await body(req),request=validateRequest(input.request);
         if(inFlight>=2||pipeline.activeCount)fail(429,'BUSY','已有模型任务在运行，请稍后再试。');
-        const provider=validateProviderConfig({apiKey:input.provider?.apiKey||apiKey,baseUrl:input.provider?.baseUrl||baseUrl,model:input.provider?.model||model});
+        const provider=resolveProviderConfig(input.provider,{apiKey,baseUrl,model});
         requestSecrets.push(provider.apiKey);
         rejectCredentialEcho(request,requestSecrets);
         const abort=new AbortController();
@@ -100,7 +100,7 @@ export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=proces
       if(url.pathname==='/api/jobs'&&req.method==='POST') {
         const input=await body(req),entry=get(plans,input.planId);
         if(inFlight)fail(429,'BUSY','模型分析正在运行，请稍后启动制作任务。');
-        const provider=validateProviderConfig({apiKey:input.provider?.apiKey||apiKey,baseUrl:input.provider?.baseUrl||baseUrl,model:input.provider?.model||model});
+        const provider=resolveProviderConfig(input.provider,{apiKey,baseUrl,model});
         requestSecrets.push(provider.apiKey);
         const job=pipeline.start({plan:entry.plan,provenance:entry.report.provenance,provider,maxRepairs:input.maxRepairs??1,mode:input.mode??'build',secrets:[apiKey]});
         return json(res,202,job);
@@ -117,19 +117,19 @@ export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=proces
       if(url.pathname==='/api/plan'&&req.method==='POST') {
         const input=await body(req),request=validateRequest(input.request);
         if(inFlight>=2||pipeline.activeCount)fail(429,'BUSY','已有模型任务在运行，请稍后再试。');
-        const provider=input.provider||{};
-        if(!provider.apiKey&&!apiKey)fail(400,'API_KEY_REQUIRED','请在本地填写 API Key，或通过 DEEPSEEK_API_KEY 配置。');
-        if(provider.apiKey && (typeof provider.apiKey!=='string'||provider.apiKey.length>512))fail(400,'INVALID_PROVIDER','API Key 格式无效。');
-        if(provider.apiKey)requestSecrets.push(provider.apiKey);
+        const provider=resolveProviderConfig(input.provider,{apiKey,baseUrl,model});
+        requestSecrets.push(provider.apiKey);
         rejectCredentialEcho(request,requestSecrets);
         const abort=new AbortController();
         res.once('close',()=>{if(!res.writableEnded)abort.abort();});
         inFlight++;
         let plan;
-        try {plan=await planGenerator(request,{apiKey:provider.apiKey||apiKey,baseUrl:provider.baseUrl||baseUrl,model:provider.model||model,signal:abort.signal});}
+        try {plan=await planGenerator(request,{...provider,signal:abort.signal});}
         finally {inFlight--;}
-        const result={id:randomUUID(),plan,report:{status:'plan_validated',build:'not_run',game:'not_run',provenance:'model',model:provider.model||model}};
+        if(abort.signal.aborted)fail(409,'PROVIDER_CANCELLED','需求分析已取消，晚到的结果已丢弃。');
+        const result={id:randomUUID(),plan,report:{status:'plan_validated',build:'not_run',game:'not_run',provenance:'model',model:provider.model}};
         rejectCredentialEcho(result,requestSecrets);
+        if(abort.signal.aborted)fail(409,'PROVIDER_CANCELLED','需求分析已取消，未保存结果。');
         const record=remember(plans,result);
         return json(res,200,record);
       }

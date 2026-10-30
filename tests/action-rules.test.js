@@ -53,6 +53,45 @@ test('action schema example is a complete proposal with explicit unknown host ve
   assert.throws(() => createActionExample('imaginary-supported-game'), { code: 'INVALID_ACTION_BLUEPRINT' });
 });
 
+test('a near-limit proposal remains valid after bounded local metadata is attached', () => {
+  const { raw, request } = proposal();
+  request.description = 'x'.repeat(8000);
+  raw.requirements = Array.from({ length: 28 }, (_, index) => ({ id: `r${index}`, description: 'x'.repeat(1950),
+    required: true, disposition: 'rule', actionIds: ['light-1', 'light-2', 'dodge'] }));
+  const bytes = value => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  assert.ok(bytes(raw) < ACTION_BLUEPRINT_LIMITS.maxBytes);
+  const blueprint = validateActionBlueprint(raw, request);
+  assert.ok(bytes(blueprint) > ACTION_BLUEPRINT_LIMITS.maxBytes);
+  assert.ok(bytes(blueprint) <= ACTION_BLUEPRINT_LIMITS.maxNormalizedBytes);
+  assert.deepEqual(blueprint.originalRequest, request);
+  assert.deepEqual(validateActionBlueprint(blueprint, request), blueprint);
+  assert.deepEqual(validateActionBlueprint(serializeActionProposal(blueprint), request), blueprint);
+  assert.equal(simulateActionBlueprint(blueprint, { durationTicks: 1, events: [] }).game, 'not_run');
+  assert.throws(() => validateActionBlueprint({ ...blueprint, readyToInstall: true }, request), /locally determined/);
+  assert.throws(() => serializeActionProposal({ ...blueprint, coverage: { ...blueprint.coverage, semanticCoverage: 'passed' } }), /locally determined/);
+
+  raw.requirements = Array.from({ length: 32 }, (_, index) => ({ id: `r${index}`, description: 'x'.repeat(2000),
+    required: true, disposition: 'rule', actionIds: ['light-1', 'light-2', 'dodge'] }));
+  assert.ok(bytes(raw) > ACTION_BLUEPRINT_LIMITS.maxBytes);
+  assert.throws(() => validateActionBlueprint(raw, request), /64 KiB/);
+  assert.throws(() => validateActionBlueprint({ ...raw, scope: 'action-blueprint-only' }, request), /64 KiB/);
+});
+
+test('normalization expansion is checked before a blueprint is accepted', () => {
+  const { raw, request } = proposal();
+  raw.requirements = Array.from({ length: 28 }, (_, index) => ({ id: `r${index}`, description: 'x'.repeat(1950),
+    required: true, disposition: 'rule', actionIds: ['light-1', 'light-2', 'dodge'] }));
+  raw.limitations = [];
+  const bytes = () => new TextEncoder().encode(JSON.stringify(raw)).byteLength;
+  const target = ACTION_BLUEPRINT_LIMITS.maxBytes - 6;
+  while (bytes() < target) raw.limitations.push('z'.repeat(Math.min(600, target - bytes() - (raw.limitations.length ? 3 : 2))));
+  assert.ok(bytes() <= ACTION_BLUEPRINT_LIMITS.maxBytes);
+  assert.throws(() => validateActionBlueprint(raw, request), /64 KiB/);
+  const reference = proposal();
+  reference.raw.source.references = ['https://example.com/' + '界'.repeat(100)];
+  assert.throws(() => validateActionBlueprint(reference.raw, reference.request), /Normalized source reference/);
+});
+
 test('non-JSON shapes, inherited prototypes, accessors, cycles, sparse arrays and amplification are refused', () => {
   rejects(raw => { raw.extra = true; });
   rejects(raw => { raw.actions[0].execute = 'shell'; });
@@ -155,6 +194,81 @@ test('same-tick event ordering is explicit and never sorts a hit before an earli
   const inputFirst = replay(blueprint, [input(0), input(5), { tick: 5, type: 'hit' }]);
   assert.deepEqual(started(confirmedFirst), ['light-1', 'light-2']);
   assert.deepEqual(started(inputFirst), ['light-1']);
+});
+
+test('default replay finds a confirmed hit inside a transition that opens before the active window', () => {
+  const blueprint = changed(raw => { raw.actions[0].transitions[0].windowStartTick = 0; });
+  const scenarios = createActionScenarios(blueprint);
+  const positive = scenarios.find(item => item.name === '转换 1 有模拟命中');
+  assert.ok(positive);
+  const hitIndex = positive.events.findIndex(item => item.type === 'hit');
+  assert.deepEqual(positive.events.slice(hitIndex, hitIndex + 2), [{ tick: 3, type: 'hit' }, input(3)]);
+  assert.deepEqual(started(simulateActionBlueprint(blueprint, positive)), ['light-1', 'light-2']);
+  const whiff = scenarios.find(item => item.name === '转换 1 无命中');
+  assert.deepEqual(started(simulateActionBlueprint(blueprint, whiff)), ['light-1']);
+});
+
+test('default replay reaches later actions with the necessary synthetic hit prefix', () => {
+  const blueprint = changed(raw => {
+    raw.actions[1].transitions.push({ input: 'attack', to: 'light-3', windowStartTick: 0, windowEndTick: 10, condition: 'hit_confirmed' });
+    raw.actions.push({ id: 'light-3', kind: 'attack', durationTicks: 15, staminaCost: 20, interruptible: true,
+      hitWindow: { startTick: 2, endTick: 5 }, transitions: [] });
+    raw.requirements[0].actionIds.push('light-3');
+  });
+  const scenarios = createActionScenarios(blueprint);
+  const later = scenarios.find(item => item.name === '动作 light-3：动作完整生命周期');
+  assert.ok(later);
+  const result = simulateActionBlueprint(blueprint, later);
+  assert.deepEqual(started(result), ['light-1', 'light-2', 'light-3']);
+  assert.equal(result.trace.filter(item => item.type === 'hit_confirmed').length, 2);
+  assert.equal(result.finalState.phase, 'idle');
+  assert.equal(result.sourceVerification, 'not_verified');
+  assert.equal(result.readyToInstall, false);
+});
+
+test('default replay keeps resource- and time-limited paths partial without rejecting valid rules', () => {
+  const resources = changed(raw => { raw.stamina.max = 25; });
+  const limited = createActionScenarios(resources);
+  assert.ok(limited.length > 0);
+  assert.ok(!limited.some(item => item.name === '动作 light-2：动作完整生命周期'));
+  for (const scenario of limited) assert.equal(simulateActionBlueprint(resources, scenario).game, 'not_run');
+  const timed = changed(raw => {
+    raw.actions = Array.from({ length: 8 }, (_, index) => ({ id: `stage-${index}`, kind: 'attack', durationTicks: 600,
+      staminaCost: 0, interruptible: true, hitWindow: { startTick: 1, endTick: 2 },
+      transitions: index === 7 ? [] : [{ input: 'attack', to: `stage-${index + 1}`, windowStartTick: 599, windowEndTick: 600, condition: 'always' }] }));
+    raw.entryActions = [{ input: 'attack', actionId: 'stage-0' }];
+    raw.requirements = [{ id: 'long-chain', description: '超过单场景时间预算的长链。', required: true, disposition: 'rule', actionIds: raw.actions.map(item => item.id) }];
+  });
+  const longScenarios = createActionScenarios(timed);
+  assert.ok(longScenarios.length > 0);
+  assert.ok(!longScenarios.some(item => item.name === '动作 stage-7：动作完整生命周期'));
+  for (const scenario of longScenarios) {
+    assert.ok(scenario.durationTicks <= ACTION_BLUEPRINT_LIMITS.maxScenarioTicks);
+    assert.ok(scenario.events.length <= ACTION_BLUEPRINT_LIMITS.maxScenarioEvents);
+    assert.equal(simulateActionBlueprint(timed, scenario).game, 'not_run');
+  }
+});
+
+test('dense cyclic rules produce a bounded deterministic replay set rather than enumerating paths', () => {
+  const blueprint = changed(raw => {
+    raw.actions = Array.from({ length: 16 }, (_, index) => ({ id: `node-${index}`, kind: 'attack', durationTicks: 1,
+      staminaCost: 0, interruptible: true, hitWindow: { startTick: 0, endTick: 1 },
+      transitions: Array.from({ length: 8 }, (_, edge) => ({ input: `next-${edge}`, to: `node-${(index + edge + 1) % 16}`,
+        windowStartTick: 0, windowEndTick: 1, condition: 'always' })) }));
+    raw.entryActions = [{ input: 'attack', actionId: 'node-0' }];
+    raw.requirements = [{ id: 'cyclic-chain', description: '有界循环规则测试。', required: true, disposition: 'rule', actionIds: raw.actions.map(item => item.id) }];
+  });
+  const scenarios = createActionScenarios(blueprint);
+  assert.equal(scenarios.length, ACTION_BLUEPRINT_LIMITS.maxGeneratedScenarios);
+  assert.deepEqual(createActionScenarios(blueprint), scenarios);
+  assert.equal(scenarios.filter(item => item.name.endsWith('动作完整生命周期')).length, 16);
+  for (const scenario of scenarios) {
+    const result = simulateActionBlueprint(blueprint, scenario);
+    assert.ok(scenario.durationTicks <= ACTION_BLUEPRINT_LIMITS.maxScenarioTicks);
+    assert.ok(scenario.events.length <= ACTION_BLUEPRINT_LIMITS.maxScenarioEvents);
+    assert.ok(result.trace.length <= ACTION_BLUEPRINT_LIMITS.maxTraceEntries);
+    assert.equal(result.game, 'not_run');
+  }
 });
 
 test('confirmed hits belong to one action and do not leak into a new combo stage', () => {

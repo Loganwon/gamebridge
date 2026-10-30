@@ -9,6 +9,8 @@ const ui = {
 const isLocalOrigin = ['localhost', '127.0.0.1'].includes(location.hostname);
 let serviceReady = false;
 let providerConfigured = false;
+let configuredProviderOrigin = null;
+let displayedProviderOrigin = null;
 let busy = false;
 let planId = null;
 let currentPlan = null;
@@ -66,6 +68,15 @@ function setBusy(value, label) {
   for (const button of document.querySelectorAll('[data-example]')) button.disabled = value;
 }
 function providerValues() { return {apiKey: ui.key.value.trim(), baseUrl: ui.base.value.trim(), model: ui.model.value.trim()}; }
+function usesConfiguredProvider() {
+  try { return new URL(ui.base.value.trim()).origin === configuredProviderOrigin; }
+  catch { return false; }
+}
+function updateCredentialHint() {
+  const canUseDefault = providerConfigured && usesConfiguredProvider();
+  $('api-key-hint').textContent = canUseDefault ? '本地已配置此地址的密钥；可留空' : providerConfigured ? '地址已更改，请填写对应的 API Key' : '仅在当前页面内存中使用';
+  ui.key.placeholder = canUseDefault ? '留空使用此地址的本地密钥' : '输入当前 API 地址的密钥';
+}
 function stopPolling() { if (pollTimer !== null) clearTimeout(pollTimer); pollTimer = null; }
 function resetJob() {
   stopPolling();
@@ -308,7 +319,7 @@ async function pollJob(id, revision) {
 async function startPipeline(mode = 'build') {
   if (busy || !serviceReady || !planId || !canGenerate(currentPlan)) return;
   resetMessages();
-  if (!ui.key.value.trim() && !providerConfigured) { ui.settings.open = true; ui.key.focus(); showError(new Error('请在本地模型设置中填写 API Key 后再运行 AI 制作。')); return; }
+  if (!ui.key.value.trim() && !(providerConfigured && usesConfiguredProvider())) { ui.settings.open = true; ui.key.focus(); showError(new Error('请填写当前 API 地址对应的 API Key 后再运行 AI 制作。')); return; }
   const revision = requestRevision;
   const targetPlanId = planId;
   if (mode === 'build') {
@@ -332,7 +343,7 @@ ui.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (busy || !serviceReady || !ui.form.reportValidity()) return;
   resetMessages();
-  if (!ui.key.value.trim() && !providerConfigured) { ui.settings.open = true; ui.key.focus(); showError(new Error('请先填写 API Key，或使用下方不调用 AI 的示例工程。')); return; }
+  if (!ui.key.value.trim() && !(providerConfigured && usesConfiguredProvider())) { ui.settings.open = true; ui.key.focus(); showError(new Error('请填写当前 API 地址对应的 API Key，或使用不调用 AI 的示例工程。')); return; }
   requestRevision++; resetJob();
   planId = null; currentPlan = null; resetProject();
   setBusy(true, '模型正在分析…'); stage('plan', ['request']);
@@ -384,6 +395,13 @@ ui.cancel.addEventListener('click', async () => {
   }
 });
 $('clear-key').addEventListener('click', () => { ui.key.value = ''; ui.key.focus(); });
+ui.base.addEventListener('input', () => {
+  let origin = null;
+  try { origin = new URL(ui.base.value.trim()).origin; } catch {}
+  if (origin !== displayedProviderOrigin) ui.key.value = '';
+  displayedProviderOrigin = origin;
+  updateCredentialHint();
+});
 ui.download.addEventListener('click', event => { if (ui.download.getAttribute('aria-disabled') === 'true') event.preventDefault(); });
 for (const input of [ui.host, ui.source, ui.description]) input.addEventListener('input', () => { countDescription(); invalidatePlan(); });
 for (const button of document.querySelectorAll('[data-example]')) button.addEventListener('click', () => {
@@ -409,18 +427,24 @@ async function initialize() {
     if (!response.ok) throw new Error('本地 API 尚未启动。');
     const config = await response.json();
     if (config.local !== true) throw new Error('无法确认本地制作服务。');
-    serviceReady = true; providerConfigured = config.providerConfigured === true;
+    if (!config.defaultProvider || typeof config.defaultProvider.baseUrl !== 'string' || typeof config.defaultProvider.model !== 'string') throw new Error('本地供应商配置不完整。');
+    const providerOrigin = new URL(config.defaultProvider.baseUrl).origin;
+    providerConfigured = config.providerConfigured === true;
     ui.settings.hidden = false;
-    if (config.defaultProvider?.baseUrl) ui.base.value = config.defaultProvider.baseUrl;
-    if (config.defaultProvider?.model) ui.model.value = config.defaultProvider.model;
+    ui.base.value = config.defaultProvider.baseUrl;
+    ui.model.value = config.defaultProvider.model;
+    configuredProviderOrigin = providerOrigin;
+    displayedProviderOrigin = configuredProviderOrigin;
     $('connection-badge').classList.add('is-local'); $('connection-text').textContent = '本地服务已连接';
     $('runtime-notice').classList.add('is-local');
     $('runtime-notice').replaceChildren(element('strong', '本地制作服务已就绪'), element('p', '配置模型后分析需求，或查看不调用 AI 的固定示例。源码工程仍需构建与游戏实测。'));
     $('form-note').textContent = '调用模型会使用你所配置供应商的 API 额度。';
-    if (providerConfigured) { $('api-key-hint').textContent = '本地环境已配置；可留空使用'; ui.key.placeholder = '留空使用本地环境中的密钥'; }
+    updateCredentialHint();
+    serviceReady = true;
     setBusy(false);
     await refreshEnvironment();
   } catch (error) {
+    serviceReady = false;
     $('connection-text').textContent = '本地服务未就绪';
     $('runtime-notice').replaceChildren(element('strong', '尚未连接制作服务'), element('p', '请通过 npm run dev 启动完整本地服务，再刷新此页面。'));
     $('form-note').textContent = '仅静态预览服务器不提供模型调用或工程生成。';

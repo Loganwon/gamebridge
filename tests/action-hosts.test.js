@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getHostCatalog, assessActionHost, HostAssessmentError } from '../src/actions/hosts.mjs';
-import { createActionExample, serializeActionProposal } from '../src/actions/spec.mjs';
+import { ACTION_BLUEPRINT_LIMITS, createActionExample, serializeActionProposal, validateActionBlueprint } from '../src/actions/spec.mjs';
 
 function proposal(variant) { return serializeActionProposal(createActionExample(variant).blueprint); }
 const installed = { platform: 'win32', gameVersion: '1.4.8', toolsVersion: '1.4.8', gameInstalled: true, toolsInstalled: true };
@@ -45,6 +45,26 @@ test('complete self-reported installation metadata and exact version strings can
   assert.ok(!codes(report).includes('SOURCE_SPEC_REQUIRED'));
   assert.equal(report.environment.versionValidated, false);
   assert.equal(report.host.exactGameVersion, null);
+});
+
+test('host assessment accepts bounded normalized metadata without enlarging the model proposal budget', () => {
+  const { request, blueprint } = createActionExample();
+  request.description = 'x'.repeat(8000);
+  const raw = serializeActionProposal(blueprint);
+  raw.requirements = Array.from({ length: 28 }, (_, index) => ({ id: `r${index}`, description: 'x'.repeat(1950),
+    required: true, disposition: 'rule', actionIds: ['light-1', 'light-2', 'dodge'] }));
+  const normalized = validateActionBlueprint(raw, request);
+  const bytes = new TextEncoder().encode(JSON.stringify(normalized)).byteLength;
+  assert.ok(bytes > ACTION_BLUEPRINT_LIMITS.maxBytes);
+  assert.ok(bytes <= ACTION_BLUEPRINT_LIMITS.maxNormalizedBytes);
+  const report = assessActionHost(normalized);
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.game, 'not_run');
+  assert.equal(report.readyToInstall, false);
+  rejects({ ...normalized, readyToInstall: true });
+  raw.requirements = Array.from({ length: 32 }, (_, index) => ({ id: `r${index}`, description: 'x'.repeat(2000),
+    required: true, disposition: 'rule', actionIds: ['light-1', 'light-2', 'dodge'] }));
+  rejects({ ...raw, scope: 'action-blueprint-only' });
 });
 
 test('mismatched platform, game, tool and blueprint versions produce explicit blockers', () => {
