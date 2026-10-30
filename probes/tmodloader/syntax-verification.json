@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "scope": "syntax-only",
+  "recordedDate": "2026-10-30",
+  "tool": "scripts/check-csharp-syntax.mjs",
+  "provenance": "local-sdk-roslyn",
+  "parserSdkVersion": "10.0.403",
+  "parserSdkIsTargetBuildSdk": false,
+  "files": [
+    {
+      "file": "ProbeMod.cs",
+      "sha256": "fac86b07768c293f07fdd4ae2075980eb0bc41926c645c08c5da71a614b721db",
+      "syntaxPassed": true,
+      "diagnostics": []
+    },
+    {
+      "file": "ProbePlayer.cs",
+      "sha256": "9f00d6504e030d218c7843d1ee37ccd418ccb1d4165263a458d41cf0236ddfdc",
+      "syntaxPassed": true,
+      "diagnostics": []
+    },
+    {
+      "file": "ProbeGlobalItem.cs",
+      "sha256": "8ef63d4dfcaf4d009efa9ca18d82bae5cbc85d64309243095de96274304dd51d",
+      "syntaxPassed": true,
+      "diagnostics": []
+    },
+    {
+      "file": "ProbeSystem.cs",
+      "sha256": "13fd37de9beebe997b94f7ac1d80537500831ac34171750399a3d3196b4aeba3",
+      "syntaxPassed": true,
+      "diagnostics": []
+    }
+  ],
+  "realModBuild": "not_run",
+  "packaging": "not_run",
+  "game": "not_run",
+  "readyToInstall": false,
+  "limitation": "C# text parsing only. No type binding, host assembly loading, Mod compilation, packaging, installation or game execution."
+}

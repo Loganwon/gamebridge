@@ -1,6 +1,6 @@
 # GameBridge 产品目标与开发规划
 
-规划日期：2026-10-30（Asia/Shanghai）。本文定义后续产品方向和交付门槛；当前代码为 0.5.1 Alpha，已增加动作规则基础并修复审查缺陷，进展见 [工作台说明](ai-mod-workbench.md)、[审查修复](review-fixes.md) 和 [此前动作验收](action-workbench-acceptance.md)。完整动作 Mod 首版仍为开发目标。
+规划日期：2026-10-30（Asia/Shanghai）。本文定义后续产品方向和交付门槛；当前代码为 0.5.2 Alpha，已增加动作规则基础、审查修复与 Mac 候选环境预检，进展见 [工作台说明](ai-mod-workbench.md)、[Mac 预检记录](macos-host-probe.md)、[审查修复](review-fixes.md) 和 [此前动作验收](action-workbench-acceptance.md)。完整动作 Mod 首版仍为开发目标。
 
 GameBridge 面向想改造单机游戏体验的玩家：玩家描述“在宿主游戏 A 中，使用来源游戏 B 的某组角色、武器或动作交互”，工具判断可行性，生成适配宿主的 Mod，并用真实游戏中的表现验证需求。核心交付是玩家可以操作、能影响宿主真实对象的玩法。源码、构建包和报告是实现这一交付的过程与证据。
 
@@ -71,7 +71,7 @@ Bannerlord 的三维近战路线值得评估，其首轮环境按 Windows 准备
 
 来源规格至少冻结：来源游戏与版本、具体武器和招式、参考出处、动作顺序与时序、命中与取消条件、允许近似及误差，以及资源出处。仅有“三段攻击加闪避”的通用描述，不足以证明迁入了某款来源游戏的特征。
 
-tModLoader 进入 macOS 资料评估，尚未进入支持目录或冻结为首发组合。其二维表现与原定三维动作方向的差异需要明确，不能默认为玩家接受。候选变化不改变真实动作与自动制作的验收标准。[环境与候选说明](host-environment.md)
+tModLoader 已有 macOS 环境预检和未编译可信探针源码；本机专用 .NET 8 x64 已运行自有测试程序。用户尚未拥有 Terraria，真实引用、Mod 编译、打包和游戏仍未验证，尚未进入支持目录或冻结为首发组合。其二维表现与原定三维动作方向的差异需要明确，不能默认为玩家接受。候选变化不改变真实动作与自动制作的验收标准。[环境与候选说明](host-environment.md) · [本轮证据与缺口](macos-host-probe.md)
 
 依据：[Bannerlord 官方 Mod 文档](https://moddocs.bannerlord.com/)、[工具安装要求](https://moddocs.bannerlord.com/asset-management/faq/)、[动画导入要求](https://moddocs.bannerlord.com/asset-management/asset-types/animations/)、[版本化 API](https://apidoc.bannerlord.com/)；[Creation Kit 官方说明](https://store.steampowered.com/app/1946180/Skyrim_Special_Edition_Creation_Kit/)；[Teardown 官方 Mod 文档](https://teardowngame.com/modding/)和 [API](https://teardowngame.com/modding/api.html)。以上为候选资料，取舍是产品规划判断，不构成支持声明。
 

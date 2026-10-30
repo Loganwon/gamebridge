@@ -2,7 +2,9 @@
 
 用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 将需求转为动作规则，检查素材和宿主接口缺口，逐步完成原生 Mod 制作与真实游戏验收。
 
-**当前版本 0.5.1 Alpha：修复跨供应商密钥复用、旧分析取消、蓝图复验预算、命中连段回放与 SMAPI 守卫检查。** 支持动作规则设计与有限回放；尚无已验证动作宿主，不能生成可安装的动作 Mod。闪避目前只是规则状态，没有实际位移、动画或碰撞。现有 SMAPI 源码、编译与修复保留为单独管线测试。[审查修复与下一轮方向](docs/review-fixes.md) · [动作规则说明](docs/action-rules.md) · [此前动作验收](docs/action-workbench-acceptance.md)
+**当前版本 0.5.2 Alpha：增加 Mac tModLoader 环境预检与未编译的可信宿主探针。** 本机 .NET 8 x64 已运行自有测试程序，但用户尚未拥有 Terraria，真实 Mod 编译和游戏测试均未运行。尚无已验证动作宿主，不能生成可安装的动作 Mod。[Mac 测试记录与缺口](docs/macos-host-probe.md)
+
+工作台支持动作规则设计与有限回放；闪避目前只是规则状态，没有实际位移、动画或碰撞。现有 SMAPI 源码、编译与修复保留为单独管线测试；0.5.1 的密钥、取消、预算与源码检查修复继续保留。[审查修复与下一轮方向](docs/review-fixes.md) · [动作规则说明](docs/action-rules.md) · [此前动作验收](docs/action-workbench-acceptance.md)
 
 此前 SMAPI 自有模拟器在 OS 沙盒通过 21 场景、75 断言，但该轮新分析曾出现格式失败；失败记录继续保留。真实 Mod 编译及游戏实测仍未验收。[历史沙盒报告](docs/sandbox-verification.md)
 
@@ -38,6 +40,8 @@ npm run dev
 分析调用另计；模型请求不会自动进行网络重试。界面显示调用上限、执行阶段、每次诊断并支持取消。缺 SDK/游戏引用、NuGet 问题、重复源码或重复错误会停止，不冒充修复成功。
 
 ## 准备完整编译环境
+
+以下为旧 SMAPI 管线的编译环境。Mac tModLoader 候选使用独立的精确 SDK 与只读预检：`npm run host:check`。缺真实安装会返回 `blocked`、退出码 2；预检不会生成或构建 Mod，也不会安装游戏。[Mac 路线记录](docs/macos-host-probe.md)
 
 安装 .NET SDK 8+（推荐 10 LTS）；生成工程目标仍为游戏使用的 `net6.0`。工作台会探测项目 `.tools/dotnet` 和 PATH，也可通过 `GAMEBRIDGE_DOTNET_PATH` 指定绝对路径。
 

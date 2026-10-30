@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "tmodloader-native-sword-host-api-probe",
+  "scope": "trusted-uncompiled-host-probe-source",
+  "provenance": "project-authored-not-model-generated",
+  "hostGame": "terraria",
+  "sourceGame": null,
+  "hostRuntime": {
+    "name": "tModLoader",
+    "exactVersion": "2026.08.3.0",
+    "officialTag": "v2026.08.3.0",
+    "terrariaContentVersion": "1.4.4.9",
+    "versionEvidence": "official-fixed-tag-source-not-local-assembly",
+    "targetFramework": "net8.0",
+    "sdkVersion": "8.0.427",
+    "sdkArchitecture": "x64",
+    "platformCandidate": "darwin"
+  },
+  "status": {
+    "source": "provided",
+    "realModBuild": "not_run",
+    "packaging": "not_run",
+    "game": "not_run",
+    "hostAdmission": "blocked",
+    "readyToInstall": false
+  },
+  "resources": {
+    "policy": "resource-owning-host-only",
+    "nativeWeapon": "Terraria.ID.ItemID.WoodenSword",
+    "bundledHostAssets": [],
+    "bundledHostAssemblies": [],
+    "newItems": false,
+    "newRecipes": false,
+    "sourceGameAssets": false
+  },
+  "controls": { "toggleSession": "P", "cancelRecoveryOrFollowup": "V", "attack": "native-use-item-control" },
+  "limits": {
+    "enabledByDefault": false,
+    "singlePlayerOnly": true,
+    "maximumStamina": 100,
+    "firstSwingCost": 30,
+    "followupCost": 20,
+    "followupWindowTicks": 30,
+    "idleStaminaRegenerationPerTick": 1,
+    "maximumLogRecordsPerWorld": 64,
+    "maximumComboStages": 2,
+    "savePersistence": false
+  },
+  "capabilitiesToProbe": [
+    { "id": "native_visible_weapon_animation", "status": "unverified", "hook": "GlobalItem.UseAnimation" },
+    { "id": "real_npc_hit_callback", "status": "unverified", "hook": "GlobalItem.OnHitNPC" },
+    { "id": "independent_stamina_gate", "status": "unverified", "hook": "GlobalItem.CanUseItem + UseAnimation" },
+    { "id": "hit_confirmed_second_manual_swing", "status": "unverified", "hook": "GlobalItem.OnHitNPC + ModPlayer.PostUpdate" },
+    { "id": "late_recovery_cancel", "status": "unverified", "hook": "ModPlayer.ProcessTriggers + GlobalItem.CanHitNPC" },
+    { "id": "hurt_death_context_exit_cleanup", "status": "unverified", "hook": "ModPlayer.OnHurt / UpdateDead / UpdateAutopause + ModSystem.OnWorldUnload" }
+  ],
+  "buildBoundary": {
+    "compileOnly": true,
+    "importsTmlBuildTargets": false,
+    "thirdPartyAnalyzers": false,
+    "packageReferences": [],
+    "automaticInstallation": false,
+    "automaticExecution": false,
+    "references": "explicit-real-local-preflight-file-list",
+    "referenceValidation": "external-preflight-required-not-proved-by-msbuild-flag"
+  },
+  "unimplemented": [
+    "real host API binding and runtime acceptance",
+    "tModLoader packaging and controlled load boundary",
+    "model-generated action rules to host backend",
+    "source-game extraction, assets or animation retargeting",
+    "different source-game moves or faithful combos",
+    "new movement, dodge, invulnerability or collision shapes",
+    "multiplayer or network synchronization"
+  ],
+  "officialApiSources": [
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/Terraria/Terraria/Terraria.csproj.patch",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/ModLoader/GlobalItem.cs",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/ModLoader/ModPlayer.cs",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/ModLoader/ModSystem.cs",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/ModLoader/KeybindLoader.cs",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/ModLoader/ModKeybind.cs",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/Player.cs.patch",
+    "https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/release_extras/tMLMod.targets"
+  ]
+}

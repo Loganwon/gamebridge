@@ -1,0 +1,3 @@
+# Future local compile outputs must never enter the source-only probe directory in Git.
+GameBridgeHostProbe/bin/
+GameBridgeHostProbe/obj/

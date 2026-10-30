@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-10-30",
+  "projectVersion": "0.5.2-alpha.1",
+  "scope": "sdk-proof-and-uncompiled-host-probe-only",
+  "machine": { "platform": "darwin", "macOS": "26.1", "build": "25B78", "architecture": "arm64" },
+  "x64SystemCommand": { "command": "arch -x86_64 uname -m", "exitCode": 0, "output": "x86_64" },
+  "sdkArchive": {
+    "source": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.427/dotnet-sdk-8.0.427-osx-x64.tar.gz",
+    "metadata": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json",
+    "version": "8.0.427", "rid": "osx-x64", "bytes": 215155458,
+    "sha512": "a6c6d0a3708b15e20285f4f662195b6fd276e3df2fc91c0a38f30681ff8a23d5e322ada8a92e9b410343449eab635d01b30a4f55aeef6f884651a559cce07707",
+    "hashMatchedOfficialMetadata": true,
+    "projectLocalIgnoredInstall": true,
+    "systemPathModified": false
+  },
+  "sdkProbe": {
+    "scope": "trusted-sdk-probe-only", "compiled": true, "executedOwnSdkProbe": true,
+    "processOutput": "sdk-probe-only:X64:8.0.33", "packageSources": [],
+    "providerCredentialsInherited": false, "osSandboxUsed": false,
+    "gameReferencesUsed": false, "gameApiSimulatorUsed": false
+  },
+  "hostPreflight": {
+    "scope": "tmodloader-environment-preflight-only", "status": "blocked",
+    "sdkVersion": "8.0.427", "sdkArchitecture": "x64", "sdkRid": "osx-x64", "sdkConditionsMet": true,
+    "issues": ["TML_INSTALL_PATH_REQUIRED"], "readyForProbeBuild": false,
+    "realInstallationPositivePath": "not_run", "publisherIdentityAuthenticated": false
+  },
+  "userEnvironment": { "terrariaOwnership": "not_owned_user_reported", "windowsAvailable": false },
+  "hostProbeSource": { "scope": "trusted-uncompiled-host-probe-source", "sourceContractTestsPassed": 7, "csharpSyntaxFilesPassed": 4, "apiBinding": "not_run", "modelGenerated": false },
+  "regression": { "tests": 186, "passed": 186, "failed": 0, "skipped": 0, "siteBuild": "passed" },
+  "modelCalls": 0,
+  "adapterImplemented": false,
+  "sourceGame": null,
+  "sourceFidelity": "unverified",
+  "realModBuild": "not_run",
+  "packaging": "not_run",
+  "game": "not_run",
+  "readyToInstall": false
+}

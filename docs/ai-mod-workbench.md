@@ -1,6 +1,8 @@
 # GameBridge：自动化 AI Mod 制作工具
 
-实现版本：0.5.1 Alpha，更新于 2026-10-30（Asia/Shanghai）。后续目标用户、首版范围、架构与交付门槛以 [产品目标与开发规划](product-plan.md) 为准；本文记录现有工作台的实现与使用方法。[审查修复与下一轮方向](review-fixes.md) · [动作规则与宿主门控](action-rules.md) · [历史 OS 沙盒记录](sandbox-verification.md)。
+实现版本：0.5.2 Alpha，更新于 2026-10-30（Asia/Shanghai）。后续目标用户、首版范围、架构与交付门槛以 [产品目标与开发规划](product-plan.md) 为准；本文记录现有工作台的实现与使用方法。[Mac 环境预检记录](macos-host-probe.md) · [审查修复与下一轮方向](review-fixes.md) · [动作规则与宿主门控](action-rules.md) · [历史 OS 沙盒记录](sandbox-verification.md)。
+
+0.5.2 增加独立的 `npm run host:check`：只读检查用户指定 tModLoader 安装的托管元数据与固定 .NET 8 x64 SDK，不连接模型、编译、打包或启动游戏。本机自有 SDK 测试程序已编译和运行；用户尚未拥有 Terraria，实际宿主引用、探针编译和游戏仍未验证。`probes/tmodloader/` 是项目自有的未编译源码，不是模型生成的玩法移植成果，尚未接入工作台生成后端。
 
 ## 1. 产品目标与当前范围
 

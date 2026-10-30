@@ -1,0 +1,48 @@
+<Project>
+  <!-- Compile our trusted source only. Never import tMLMod.targets here. -->
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <OutputType>Library</OutputType>
+    <AssemblyName>GameBridgeHostProbe</AssemblyName>
+    <RootNamespace>GameBridgeHostProbe</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <BuildProjectReferences>false</BuildProjectReferences>
+    <RunAnalyzers>false</RunAnalyzers>
+    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NuGetAudit>false</NuGetAudit>
+    <RestoreSources></RestoreSources>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ProbeMod.cs" />
+    <Compile Include="ProbePlayer.cs" />
+    <Compile Include="ProbeGlobalItem.cs" />
+    <Compile Include="ProbeSystem.cs" />
+    <Reference Include="$(GameBridgeTmlPath)/tModLoader.dll" Private="false" />
+    <!-- Explicit preflight-reviewed file paths; no directory glob or imported props. -->
+    <Reference Include="$(GameBridgeReferencePaths)" Private="false" Condition="'$(GameBridgeReferencePaths)' != ''" />
+  </ItemGroup>
+  <Target Name="RequireRealHostReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(GameBridgePreflightApproved)' != 'true'"
+           Text="Real local tModLoader preflight must pass before this compile-only project is used. This flag alone does not validate references." />
+    <Error Condition="'$(GameBridgeTmlPath)' == '' or !Exists('$(GameBridgeTmlPath)/tModLoader.dll')"
+           Text="A locally owned, version-verified tModLoader v2026.08.3.0 installation is required. Do not use stub game assemblies." />
+    <Error Condition="'$(GameBridgeReferencePaths)' == ''"
+           Text="Supply the explicit managed reference paths reported by preflight. No automatic game download or fallback is provided." />
+    <Error Condition="!Exists('%(Reference.Identity)')"
+           Text="A preflight reference is missing: %(Reference.Identity)" />
+  </Target>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>
