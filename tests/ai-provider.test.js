@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generatePlan, buildProviderRequest, validateProviderConfig } from '../src/ai/provider.mjs';
+import { validatePlan, PLAN_PROPOSAL_SCHEMA } from '../src/ai/plan.mjs';
 
 const KEY = 'sk-test-secret-do-not-print';
 const request = { hostGame: 'stardew-valley', sourceGame: 'terraria', description: '生成一个按 V 临时加速的源码草稿。' };
@@ -121,4 +122,51 @@ test('successful provider completions that echo credentials are discarded before
       return true;
     });
   }
+});
+
+test('planning prompt uses the local machine-readable contract and a complete valid-format example', () => {
+  const call = buildProviderRequest(request, { apiKey: KEY });
+  const content = JSON.parse(call.options.body).messages[0].content;
+  assert.ok(content.includes(JSON.stringify(PLAN_PROPOSAL_SCHEMA)));
+  const marker = "Complete valid-format example, not an instruction to add these features to the user's request:\n";
+  const example = JSON.parse(content.slice(content.indexOf(marker) + marker.length));
+  assert.equal(example.hostGame, request.hostGame);
+  assert.equal(example.sourceGame, request.sourceGame);
+  assert.ok(example.assetRequirements.every(item => typeof item === 'string'));
+  assert.ok(example.limitations.every(item => typeof item === 'string'));
+  assert.doesNotThrow(() => validatePlan(example, request));
+  assert.match(content, /Only propose a supported mechanic when the user actually requests/);
+});
+
+test('model shape failure reports only the contract field and does not spend an automatic retry', async () => {
+  let calls = 0;
+  const raw = plan();
+  raw.assetRequirements = [{ kind: 'weapon', privateNote: 'provider-detail-do-not-retain' }];
+  await assert.rejects(generatePlan(request, { apiKey: KEY, fetchImpl: async () => { calls++; return completion(raw); } }), error => {
+    assert.equal(error.code, 'INVALID_PLAN');
+    assert.equal(error.category, 'schema');
+    assert.deepEqual(error.diagnostics, [{ path: '/assetRequirements/0', rule: 'type', expected: 'string' }]);
+    assert.ok(Object.isFrozen(error.diagnostics[0]));
+    assert.ok(!JSON.stringify(error).includes('provider-detail-do-not-retain'));
+    assert.ok(!Object.hasOwn(error, 'proposal'));
+    assert.ok(!Object.hasOwn(error, 'response'));
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+test('invalid JSON and valid-JSON semantic rejection retain distinct safe failure categories', async () => {
+  const invalidJson = new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '{broken' } }] }));
+  await assert.rejects(generatePlan(request, { apiKey: KEY, fetchImpl: async () => invalidJson }), error => {
+    assert.equal(error.category, 'json');
+    assert.equal(error.diagnostics[0].rule, 'json');
+    assert.ok(!JSON.stringify(error).includes('{broken'));
+    return true;
+  });
+  const semantic = plan(); semantic.mechanics[0].durationTicks = 600; semantic.mechanics[0].cooldownTicks = 1;
+  await assert.rejects(generatePlan(request, { apiKey: KEY, fetchImpl: async () => completion(semantic) }), error => {
+    assert.equal(error.category, 'semantic');
+    assert.equal(error.diagnostics[0].rule, 'semantic');
+    return true;
+  });
 });

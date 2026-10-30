@@ -1,10 +1,14 @@
-import { validateRequest, validatePlan } from './plan.mjs';
+import { validateRequest, validatePlan, PlanValidationError, PLAN_PROPOSAL_SCHEMA } from './plan.mjs';
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const TIMEOUT_MS = 45000;
 export class ProviderError extends Error {
-  constructor(code, message) { super(message); this.name = 'ProviderError'; this.code = code; }
+  constructor(code, message, { category, diagnostics } = {}) {
+    super(message); this.name = 'ProviderError'; this.code = code;
+    if (category) this.category = category;
+    if (diagnostics) this.diagnostics = diagnostics;
+  }
 }
 function invalid(message) { throw new ProviderError('INVALID_PROVIDER_CONFIG', message); }
 export function validateProviderConfig({ apiKey, baseUrl = DEFAULT_BASE_URL, model = 'deepseek-flash' } = {}) {
@@ -20,10 +24,27 @@ export function validateProviderConfig({ apiKey, baseUrl = DEFAULT_BASE_URL, mod
 const SYSTEM_PROMPT = `You plan native game mods for GameBridge. The host game is the game whose world the user plays in; the source game supplies requested interactions. Preserve this direction and every user request, including parts that cannot be generated. Return one JSON object, no Markdown.
 This is a source-draft generator, not proof of compilation or game compatibility. Local validation alone decides capability statuses. Never claim a connection, compiled DLL or in-game verification. Write titles, summaries, requirement descriptions and limitations in the language of the user's description.
 Current host generator: stardew-valley (SMAPI source project draft only). Current mechanics are speed_burst and melee_modifier. Any other host or feature needs a new adapter. Character, weapon and animation assets require licensed user-provided resources; do not invent or claim to have extracted them. Never suggest process injection, memory writes, anti-cheat evasion, or automatic online competitive modifications.
-Required JSON schema:
-{"schemaVersion":1,"title":"short title","hostGame":"same host ID as input","sourceGame":"same source ID as input","summary":"what is requested and what is missing","requirements":[{"id":"req-1","description":"one user requirement","capability":"speed_burst or melee_modifier or a descriptive snake_case capability","status":"needs_adapter","reason":"proposed explanation"}],"mechanics":[{"type":"speed_burst","key":"V","durationTicks":120,"cooldownTicks":300,"amount":2}],"assetRequirements":[],"limitations":[]}
+The output must satisfy this JSON Schema; required fields, data types and limits are checked locally:
+${JSON.stringify(PLAN_PROPOSAL_SCHEMA)}
 assetRequirements and limitations MUST be arrays of non-empty plain strings, never arrays of objects, nulls or nested lists. assetRequirements has at most 16 strings of at most 500 characters each; limitations has at most 17 strings of at most 600 characters each. Put resource kind, dependency and licensing information in the plain string. Example: "assetRequirements":["User-provided licensed character sprites; adapter still required"], "limitations":["No game compatibility has been verified"]. Use [] when there are no entries. Do not add fields outside the schema.
-mechanics may only use speed_burst or melee_modifier, with unique types and uppercase single A-Z keys. speed_burst amount is an integer 1..6; melee_modifier amount is a multiplier 1..3. durationTicks is an integer 1..600; cooldownTicks is an integer >= durationTicks and <=3600. Use an empty mechanics array if no supported mechanic fits. Do not silently replace a complex request with these two generic features. List its remaining requirements and missing assets explicitly. Do not use original-request as a requirement ID; the local validator preserves the original text itself.`;
+Use at most 30 requirements, at most 2000 characters per requirement description and at most 16 limitations to leave room for local additions. Status and reason fields are optional model opinions, not proof; omit them when unnecessary.
+mechanics may only use speed_burst or melee_modifier, with unique types and uppercase single A-Z keys. speed_burst amount is an integer 1..6; melee_modifier amount is a multiplier 1..3. durationTicks is an integer 1..600; cooldownTicks is an integer >= durationTicks and <=3600. Use an empty mechanics array if no supported mechanic fits. Only propose a supported mechanic when the user actually requests that behavior. Do not silently replace a complex request with these two generic features. List its remaining requirements and missing assets explicitly. Do not use original-request as a requirement ID; the local validator preserves the original text itself.
+Before returning, check that every resource and limitation entry is a STRING, each mechanic type is allowed, keys are unique, cooldown covers duration, and the host/source IDs exactly match the input. Return the JSON object only.`;
+
+function planPrompt(request) {
+  const example = {
+    schemaVersion: 1, title: 'Scoped Mod source draft', hostGame: request.hostGame, sourceGame: request.sourceGame,
+    summary: 'An example combining a limited speed draft and a still-missing weapon asset; no build or game verification.',
+    requirements: [
+      { id: 'speed', description: 'A temporary speed increase when requested.', capability: 'speed_burst' },
+      { id: 'weapon', description: 'The requested weapon model still needs resources and adaptation.', capability: 'weapon_asset' },
+    ],
+    mechanics: [{ type: 'speed_burst', key: 'V', durationTicks: 120, cooldownTicks: 300, amount: 2 }],
+    assetRequirements: ['User-provided licensed weapon model; host import and validation still required.'],
+    limitations: ['No complete source-game interaction, Mod build or real-game behavior has been verified.'],
+  };
+  return `${SYSTEM_PROMPT}\nComplete valid-format example, not an instruction to add these features to the user's request:\n${JSON.stringify(example)}`;
+}
 
 export function buildProviderRequest(rawRequest, config) {
   const request = validateRequest(rawRequest);
@@ -34,7 +55,7 @@ export function buildProviderRequest(rawRequest, config) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` },
       body: JSON.stringify({ model: settings.model, messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: planPrompt(request) },
         { role: 'user', content: JSON.stringify(request) },
       ], response_format: { type: 'json_object' }, max_tokens: 4000, stream: false,
         ...(settings.baseUrl === DEFAULT_BASE_URL ? { thinking: { type: 'disabled' } } : {}) }),
@@ -111,7 +132,9 @@ export async function requestJsonCompletion(messages, { apiKey, baseUrl = DEFAUL
       if (typeof choice.message?.content !== 'string' || !choice.message.content.trim()) throw new ProviderError('EMPTY_RESPONSE', 'Provider returned an empty plan.');
       let proposal;
       try { proposal = JSON.parse(choice.message.content); }
-      catch { throw new ProviderError('INVALID_PLAN', 'Provider returned an invalid JSON plan.'); }
+      catch { throw new ProviderError('INVALID_PLAN', 'Provider returned an invalid JSON plan.', {
+        category: 'json', diagnostics: Object.freeze([Object.freeze({ path: '/', rule: 'json', expected: 'one valid JSON value without Markdown' })]),
+      }); }
       // Successful completions are untrusted too: never retain an echoed credential
       // in a plan, source file or download. Match JSON's escaping of punctuation.
       if (JSON.stringify(proposal).includes(JSON.stringify(apiKey).slice(1, -1))) {
@@ -135,5 +158,10 @@ export async function generatePlan(rawRequest, options = {}) {
   const call = buildProviderRequest(rawRequest, options);
   const proposal = await requestJsonCompletion(JSON.parse(call.options.body).messages, options);
   try { return validatePlan(proposal, call.request); }
-  catch (error) { throw new ProviderError('INVALID_PLAN', `Provider plan failed local checks: ${error.message}`); }
+  catch (error) {
+    if (error instanceof PlanValidationError) throw new ProviderError('INVALID_PLAN', `Provider plan failed local checks: ${error.message}`, {
+      category: error.category, diagnostics: error.diagnostics,
+    });
+    throw new ProviderError('INVALID_PLAN', 'Provider plan failed local checks.', { category: 'schema' });
+  }
 }

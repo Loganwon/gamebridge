@@ -1,6 +1,6 @@
 # GameBridge：自动化 AI Mod 制作工具
 
-实现版本：0.4.1 Alpha。产品规划更新于 2026-10-30（Asia/Shanghai）。后续目标用户、首版范围、架构与交付门槛以 [产品目标与开发规划](product-plan.md) 为准；本文记录现有工作台的实现与使用方法。最新独立 OS 沙盒验收及失败记录见 [沙盒报告](sandbox-verification.md)。
+实现版本：0.5.0 Alpha，更新于 2026-10-30（Asia/Shanghai）。后续目标用户、首版范围、架构与交付门槛以 [产品目标与开发规划](product-plan.md) 为准；本文记录现有工作台的实现与使用方法。新增动作规则说明见 [动作规则与宿主门控](action-rules.md)，历史 OS 沙盒验收及失败记录见 [沙盒报告](sandbox-verification.md)。
 
 ## 1. 产品目标与当前范围
 
@@ -12,7 +12,15 @@
 
 后续主线是面向单机 Mod 玩家的自动化玩法制作：先证明一组真实动作在宿主中可玩，再证明不同自然语言需求能自动产生不同动作逻辑。采用来源玩法规格、宿主能力清单与受约束动作规则，交付宿主原生 Mod；不默认要求两款游戏同时运行。现有两种 Buff 只保留为管线验证。新动作宿主尚未确定，建议先对 Bannerlord 做有真实环境的能力探针，不能将候选写成已支持。
 
-## 2. 当前工作流
+## 2. 动作规则工作流
+
+首页现为动作制作入口：需求→一次模型规则设计→本地结构和引用校验→宿主能力门控→确定性规则回放→设计 JSON。三种项目自有示例可以在公开页免费回放。当前无动作宿主适配器；动作蓝图不生成 C#、不编译或执行 Mod，所有宿主仍被阻断。[规则语义和接口](action-rules.md) · [本轮验收](action-workbench-acceptance.md)
+
+模型返回的规则只用于受限数据解释器，不包含表达式或可执行脚本。原始需求、无法表达的需求、资源缺口、来源版本和出处保留；来源特征和完整语义覆盖仍未验证。闪避状态尚无真实位移、无敌帧或碰撞。[真实宿主环境准备](host-environment.md)
+
+## 3. 独立 SMAPI 管线
+
+以下是 `/pipeline.html` 保留的两种 Buff 测试流程，不代表新动作规则已经接入游戏。
 
 ```text
 宿主、玩法来源、完整需求
@@ -34,13 +42,13 @@
 
 分析、代码生成、有限源码检查、C# 编译和游戏验收分别记录。`staticValidation` 只代表有限的代码策略检查；不是沙箱、语义覆盖证明或可玩证明。构建通过也始终保持 `game=not_run`、`readyToInstall=false`。
 
-## 3. 本轮真实验收
+## 4. 既有 SMAPI 验收
 
 已用用户在本机配置的 DeepSeek Key 实际完成需求分析和 `ModEntry.cs` 生成。还使用真实 SDK 的 Roslyn 对生成源码进行语法解析，注入缺分号错误取得 `CS1002`，把诊断交给真实 DeepSeek 修复，重新解析后无语法错误。
 
 这是受控语法故障验收；没有解析游戏类型或引用，**不是 Mod 编译成功**。编译调度、预算、失败、修复和取消分支使用明确标注的模拟编译器做契约测试；SDK 子进程另有真实普通 .NET 编译测试。用户已说明暂时没有游戏环境，真实 Mod 编译和游戏实测仍待验收。[验收记录](deepseek-pipeline-acceptance.md)
 
-## 4. DeepSeek 接入与额度
+## 5. DeepSeek 接入与额度
 
 默认 HTTPS 原点 `https://api.deepseek.com`，请求 `/chat/completions`，模型默认 `deepseek-flash`。模型名称可改；目前其他供应商也须使用同样的根路径和 JSON Chat Completions 形状，否则需增加适配器。[官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)
 
@@ -50,7 +58,7 @@
 
 完整构建模式在生成前检查环境，缺少 SDK 或游戏引用时为 `blocked`，代码模型调用数为 0。仅 C# 源码错误可以触发修复；缺程序集等 C# 环境错误同样不可修复。重复源码或重复编译错误会提前停止。
 
-## 5. 源码、编译器与数据边界
+## 6. 源码、编译器与数据边界
 
 模型仅能返回 `ModEntry.cs` 和简要说明。项目、NuGet 依赖、配置、清单、路径和其他文件由本地固定生成器控制。`ModConfig.cs`、`config.json` 的 `Enabled=false` 以及工程构建参数不可由模型修改。
 
@@ -64,7 +72,7 @@
 
 Key 可来自被忽略的 `.env` 或当前表单，不保存到浏览器存储、任务公开状态、日志或下载包；成功响应和错误都检查凭据回显。任务最多 8 项、计划/工程各 16 项，终态或产物一小时后不可访问；运行中凭据仅在内存闭包中使用。源码包最多 2 MiB，编译包最多 22 MiB，工程归档内存总计最多 64 MiB。
 
-## 6. 本地准备与使用
+## 7. 本地准备与使用
 
 ```sh
 npm test
@@ -82,7 +90,7 @@ GAMEBRIDGE_GAME_PATH=/your/local/Stardew Valley
 GAMEBRIDGE_DOTNET_PATH=
 ```
 
-仅 AI 生成源码不需要游戏环境。完整编译需要可运行的 .NET SDK 8+（推荐 10 LTS），Stardew Valley 1.6.14+ / SMAPI 4.5.2+，工程以 `net6.0` 为目标，ModBuildConfig 固定 4.4.0。SDK 与目标框架是不同概念；本轮本机 SDK 为 10.0.403。[Mod 开发环境](https://wiki.stardewvalley.net/Modding:Modder_Guide/Get_Started)
+下述游戏环境仅用于独立 SMAPI 管线。首页规则设计不需要游戏环境；Bannerlord 准入另按 [动作宿主准备指南](host-environment.md)。仅 AI 生成源码不需要游戏环境。SMAPI 完整编译需要可运行的 .NET SDK 8+（推荐 10 LTS），Stardew Valley 1.6.14+ / SMAPI 4.5.2+，工程以 `net6.0` 为目标，ModBuildConfig 固定 4.4.0。SDK 与目标框架是不同概念；本机 SDK 为 10.0.403。[Mod 开发环境](https://wiki.stardewvalley.net/Modding:Modder_Guide/Get_Started)
 
 `GAMEBRIDGE_GAME_PATH` 指向程序集目录（macOS 的 Steam 安装通常在游戏目录的 `Contents/MacOS` 中），要求以下真实文件；清单核对了固定 [ModBuildConfig 4.4.0 包](https://www.nuget.org/packages/Pathoschild.Stardew.ModBuildConfig/4.4.0) 的构建目标：
 
@@ -97,7 +105,7 @@ GAMEBRIDGE_DOTNET_PATH=
 
 检查分析结果中的缺口后，选择 AI 源码或完整编译模式，并在需要时选择修复上限。任务界面显示阶段、诊断、尝试与模型调用数；可取消。失败仍保留此前通过本地筛查的源码和报告，非法初始响应不会被替换成一个冒称 AI 生成的固定模板。
 
-## 7. 产物与状态
+## 8. SMAPI 产物与状态
 
 源码 ZIP 包含固定工程、清单、`ModEntry.cs`、配置、完整 `plan.json`、本次 README、`validation-report.json` 和 `generation.json`。真实编译通过后，增加本次产生的自有 DLL/PDB；不包含游戏 DLL。
 
@@ -119,7 +127,7 @@ API：
 
 本地服务仅监听 127.0.0.1，检查 Host/Origin、JSON 类型与 96 KiB 请求上限；完整制作任务一次运行一个，避免并发超出预算。公开 GitHub Pages 禁用制作与 Key 设置，不连接用户本机。main 推送经过测试和构建后更新网页；网页部署不等于 Mod 已更新或游戏已接入。
 
-## 8. 下一步验收与扩展
+## 9. 下一步验收与扩展
 
 1. 修复并评估新的需求分析结构可靠性，保留每次失败；不能只回放旧有效计划。
 2. 按产品规划准备合适动作宿主的真实环境，通过输入、动作、命中与恢复探针，冻结精确版本和来源动作规格。

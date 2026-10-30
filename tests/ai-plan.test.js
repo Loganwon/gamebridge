@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRequest, validatePlan, createExamplePlan, PLAN_STATUSES } from '../src/ai/plan.mjs';
+import { validateRequest, validatePlan, createExamplePlan, PLAN_STATUSES, PLAN_PROPOSAL_SCHEMA } from '../src/ai/plan.mjs';
 
 const request = { hostGame: 'stardew-valley', sourceGame: 'terraria', description: '把来源玩法带进宿主，先生成加速与近战增强的源码草稿。' };
 function proposal() {
@@ -137,4 +137,56 @@ test('fixed example identifies itself as non-AI source-draft demonstration', () 
   assert.match(plan.summary, /未调用 AI/);
   assert.ok(plan.limitations.some(item => item.includes('不是 AI')));
   assert.deepEqual(PLAN_STATUSES, ['draft_supported', 'needs_assets', 'needs_adapter', 'unsupported']);
+});
+
+test('the exported structural contract is immutable and matches locally enforced resource limits', () => {
+  assert.equal(PLAN_PROPOSAL_SCHEMA.additionalProperties, false);
+  assert.equal(PLAN_PROPOSAL_SCHEMA.properties.assetRequirements.items.type, 'string');
+  assert.equal(PLAN_PROPOSAL_SCHEMA.properties.assetRequirements.maxItems, 16);
+  assert.equal(PLAN_PROPOSAL_SCHEMA.properties.assetRequirements.items.maxLength, 500);
+  assert.equal(PLAN_PROPOSAL_SCHEMA.properties.mechanics.maxItems, 2);
+  assert.ok(Object.isFrozen(PLAN_PROPOSAL_SCHEMA.properties.assetRequirements.items));
+  assert.throws(() => { PLAN_PROPOSAL_SCHEMA.properties.assetRequirements.items.type = 'object'; }, TypeError);
+  const raw = proposal(); raw.assetRequirements = ['a'.repeat(501)];
+  assert.throws(() => validatePlan(raw, request), error => {
+    assert.equal(error.category, 'schema');
+    assert.deepEqual(error.diagnostics, [{ path: '/assetRequirements/0', rule: 'maxLength', expected: 'string of at most 500 characters' }]);
+    return true;
+  });
+});
+
+test('malformed resource shapes have precise bounded diagnostics without coercion or discarded requirements', () => {
+  for (const value of [[{ kind: 'character', path: '/private/do-not-retain' }], [null], [['nested']], [42], ['   '], null, 'one asset']) {
+    const raw = proposal(); raw.assetRequirements = value;
+    const before = structuredClone(raw);
+    assert.throws(() => validatePlan(raw, request), error => {
+      assert.equal(error.code, 'INVALID_PLAN');
+      assert.equal(error.category, 'schema');
+      assert.match(error.diagnostics[0].path, /^\/assetRequirements(?:\/0)?$/);
+      assert.equal(error.diagnostics.length, 1);
+      assert.ok(JSON.stringify(error).length < 600);
+      assert.ok(!JSON.stringify(error).includes('/private/do-not-retain'));
+      return true;
+    });
+    assert.deepEqual(raw, before, 'rejected proposal must not be rewritten into a successful plan');
+  }
+});
+
+test('unknown field names, accessors and hidden properties never become retained diagnostics or executable getters', () => {
+  const raw = proposal();
+  raw['private-field-do-not-retain'] = 'value';
+  assert.throws(() => validatePlan(raw, request), error => {
+    assert.deepEqual(error.diagnostics, [{ path: '/', rule: 'additionalProperties', expected: 'only declared fields' }]);
+    assert.ok(!JSON.stringify(error).includes('private-field-do-not-retain'));
+    return true;
+  });
+  for (const enumerable of [false, true]) {
+    let called = false;
+    const accessor = proposal();
+    Object.defineProperty(accessor, 'summary', { enumerable, get() { called = true; throw new Error('getter must not run'); } });
+    assert.throws(() => validatePlan(accessor, request), error => error.category === 'schema');
+    assert.equal(called, false);
+  }
+  const sparse = proposal(); sparse.assetRequirements = new Array(1); sparse.assetRequirements.extra = 'fills apparent key count';
+  assert.throws(() => validatePlan(sparse, request), error => error.category === 'schema');
 });

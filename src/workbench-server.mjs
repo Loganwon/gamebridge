@@ -9,11 +9,15 @@ import { generateProject } from './generator/smapi.mjs';
 import { sourceZip } from './zip.mjs';
 import { createPipeline } from './pipeline.mjs';
 import { inspectBuildEnvironment } from './build/runner.mjs';
+import { generateActionBlueprint } from './ai/action-provider.mjs';
+import { createActionExample, validateActionBlueprint } from './actions/spec.mjs';
+import { createActionScenarios, simulateActionBlueprint } from './actions/runtime.mjs';
+import { getHostCatalog, assessActionHost } from './actions/hosts.mjs';
 
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
-const TYPES={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.md':'text/markdown; charset=utf-8','.json':'application/json'};
-export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=process.env.DEEPSEEK_API_KEY||'',baseUrl=process.env.GAMEBRIDGE_API_BASE||'https://api.deepseek.com',model=process.env.GAMEBRIDGE_MODEL||'deepseek-flash',planGenerator=generatePlan,projectGenerator=generateProject,inspectEnvironment=inspectBuildEnvironment,buildOptions={},pipelineDependencies={}}={}) {
-  const plans=new Map(),projects=new Map();
+const TYPES={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.md':'text/markdown; charset=utf-8','.json':'application/json'};
+export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=process.env.DEEPSEEK_API_KEY||'',baseUrl=process.env.GAMEBRIDGE_API_BASE||'https://api.deepseek.com',model=process.env.GAMEBRIDGE_MODEL||'deepseek-flash',planGenerator=generatePlan,actionPlanGenerator=generateActionBlueprint,projectGenerator=generateProject,inspectEnvironment=inspectBuildEnvironment,buildOptions={},pipelineDependencies={}}={}) {
+  const plans=new Map(),projects=new Map(),actionPlans=new Map();
   let inFlight=0;
   const json=(res,status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(value));};
   function fail(status,code,message){const error=new Error(message);error.status=status;error.code=code;throw error;}
@@ -52,6 +56,47 @@ export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=proces
       const url=new URL(req.url,`http://${host}`);
       if(url.pathname==='/api/config'&&req.method==='GET')return json(res,200,{local:true,providerConfigured:Boolean(apiKey),defaultProvider:{baseUrl,model},capabilities:{'stardew-valley':{adapter:'smapi-source-draft',mechanics:['speed_burst','melee_modifier'],build:'not_run',game:'not_run'},'gta-v':{adapter:null,status:'needs_adapter'}}});
       if(url.pathname==='/api/environment'&&req.method==='GET')return json(res,200,await inspectEnvironment(buildOptions));
+      if(url.pathname==='/api/action-hosts'&&req.method==='GET')return json(res,200,getHostCatalog());
+      if(url.pathname==='/api/action-example'&&req.method==='POST') {
+        const input=await body(req);
+        const {request,blueprint}=createActionExample(input.variant??'hit-confirm');
+        const record=remember(actionPlans,{id:randomUUID(),request,blueprint,hostAssessment:assessActionHost(blueprint),report:{artifact:'action-design',provenance:'project-example',model:null,modelCalls:0,scope:'action-rules-design-only',completeRequirementCoverage:false,sourceFidelityVerified:false,realModBuild:'not_run',game:'not_run',readyToInstall:false}});
+        return json(res,200,record);
+      }
+      if(url.pathname==='/api/action-plans'&&req.method==='POST') {
+        const input=await body(req),request=validateRequest(input.request);
+        if(inFlight>=2||pipeline.activeCount)fail(429,'BUSY','已有模型任务在运行，请稍后再试。');
+        const provider=validateProviderConfig({apiKey:input.provider?.apiKey||apiKey,baseUrl:input.provider?.baseUrl||baseUrl,model:input.provider?.model||model});
+        requestSecrets.push(provider.apiKey);
+        rejectCredentialEcho(request,requestSecrets);
+        const abort=new AbortController();
+        res.once('close',()=>{if(!res.writableEnded)abort.abort();});
+        inFlight++;
+        let blueprint;
+        try {blueprint=await actionPlanGenerator(request,{...provider,signal:abort.signal});}
+        finally {inFlight--;}
+        if(abort.signal.aborted)fail(409,'PROVIDER_CANCELLED','动作分析已取消，晚到的结果已丢弃。');
+        rejectCredentialEcho(blueprint,requestSecrets);
+        // Revalidate even injected generators: model status cannot become host support.
+        blueprint=validateActionBlueprint(blueprint,request);
+        const record={id:randomUUID(),request,blueprint,hostAssessment:assessActionHost(blueprint),report:{artifact:'action-design',provenance:'model',model:provider.model,modelCalls:1,scope:'action-rules-design-only',completeRequirementCoverage:false,sourceFidelityVerified:false,realModBuild:'not_run',game:'not_run',readyToInstall:false}};
+        rejectCredentialEcho(record,requestSecrets);
+        if(abort.signal.aborted)fail(409,'PROVIDER_CANCELLED','动作分析已取消，未保存结果。');
+        return json(res,200,remember(actionPlans,record));
+      }
+      const actionRoute=url.pathname.match(/^\/api\/action-plans\/([a-f0-9-]{36})\/(simulate|download)$/);
+      if(actionRoute&&req.method==='POST'&&actionRoute[2]==='simulate') {
+        const entry=get(actionPlans,actionRoute[1]),input=await body(req);
+        rejectCredentialEcho(input,requestSecrets);
+        const scenarios=Object.hasOwn(input,'scenario')?[input.scenario]:createActionScenarios(entry.blueprint);
+        const simulations=scenarios.map(scenario=>({scenario,result:simulateActionBlueprint(entry.blueprint,scenario)}));
+        return json(res,200,{scope:'action-rules-simulation-only',provenance:entry.report.provenance,simulations,realModBuild:'not_run',game:'not_run',readyToInstall:false});
+      }
+      if(actionRoute&&req.method==='GET'&&actionRoute[2]==='download') {
+        const entry=get(actionPlans,actionRoute[1]);
+        res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':'attachment; filename="gamebridge-action-design.json"','Cache-Control':'no-store'});
+        return res.end(JSON.stringify(entry,null,2)+'\n');
+      }
       if(url.pathname==='/api/jobs'&&req.method==='POST') {
         const input=await body(req),entry=get(plans,input.planId);
         if(inFlight)fail(429,'BUSY','模型分析正在运行，请稍后启动制作任务。');
@@ -114,7 +159,7 @@ export function createWorkbenchServer({root=path.join(ROOT,'dist'),apiKey=proces
       res.end(req.method==='HEAD'?undefined:data);
     } catch(error) {
       if(res.writableEnded||res.destroyed)return;
-      const providerStatuses={PROVIDER_AUTH:401,PROVIDER_RATE_LIMIT:429,PROVIDER_TIMEOUT:504,PROVIDER_NETWORK:502,PROVIDER_HTTP:502,INVALID_RESPONSE:502,EMPTY_RESPONSE:502,INCOMPLETE_RESPONSE:502,CREDENTIAL_IN_RESPONSE:502,INVALID_PLAN:422};
+      const providerStatuses={PROVIDER_AUTH:401,PROVIDER_RATE_LIMIT:429,PROVIDER_TIMEOUT:504,PROVIDER_NETWORK:502,PROVIDER_HTTP:502,INVALID_RESPONSE:502,EMPTY_RESPONSE:502,INCOMPLETE_RESPONSE:502,CREDENTIAL_IN_RESPONSE:502,INVALID_PLAN:422,INVALID_ACTION_BLUEPRINT:422};
       const status=error.status||providerStatuses[error.code]||(['ENOENT','JOB_NOT_FOUND'].includes(error.code)?404:error.code==='PIPELINE_BUSY'?429:400);
       // Provider errors are deliberately normalized before they reach this layer.
       let message=error.safeMessage||error.message||'操作失败。';

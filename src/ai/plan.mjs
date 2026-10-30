@@ -6,10 +6,104 @@ const ASSET_CAPABILITIES = new Set(['character_model', 'character_animation', 'w
 const FORBIDDEN_CAPABILITIES = new Set(['process_injection', 'memory_write', 'anti_cheat_bypass', 'anti_cheat_evasion', 'online_competitive']);
 const MAX_REQUEST_BYTES = 12 * 1024;
 
-export class PlanValidationError extends Error {
-  constructor(message) { super(message); this.name = 'PlanValidationError'; this.code = 'INVALID_PLAN'; }
+function freezeSchema(value) {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeSchema(child);
+    Object.freeze(value);
+  }
+  return value;
 }
-function fail(message) { throw new PlanValidationError(message); }
+
+// One structural contract is used for the model prompt and local shape checks.
+// Cross-field semantics (direction, cooldown >= duration, unique keys and local
+// capability status) still belong to validatePlan below, never to the provider.
+export const PLAN_PROPOSAL_SCHEMA = freezeSchema({
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  type: 'object', additionalProperties: false,
+  required: ['schemaVersion', 'title', 'hostGame', 'sourceGame', 'summary', 'requirements', 'mechanics', 'assetRequirements', 'limitations'],
+  properties: {
+    schemaVersion: { type: 'integer', const: 1 },
+    title: { type: 'string', minLength: 1, maxLength: 120 },
+    hostGame: { type: 'string', minLength: 1, maxLength: 80 },
+    sourceGame: { type: 'string', minLength: 1, maxLength: 80 },
+    summary: { type: 'string', minLength: 1, maxLength: 1800 },
+    requirements: { type: 'array', maxItems: 32, items: {
+      type: 'object', additionalProperties: false, required: ['id', 'description', 'capability'],
+      properties: {
+        id: { type: 'string', minLength: 1, maxLength: 64, pattern: '^[a-zA-Z][a-zA-Z0-9_-]*$' },
+        description: { type: 'string', minLength: 1, maxLength: 8000 },
+        capability: { type: 'string', minLength: 1, maxLength: 80, pattern: '^[a-z][a-z0-9_]*$' },
+        status: { type: 'string', maxLength: 80 },
+        reason: { type: 'string', minLength: 1, maxLength: 1000 },
+      },
+    } },
+    mechanics: { type: 'array', maxItems: 2, items: {
+      type: 'object', additionalProperties: false, required: ['type'],
+      properties: {
+        type: { type: 'string', enum: ['speed_burst', 'melee_modifier'] },
+        key: { type: 'string', pattern: '^[A-Z]$' },
+        durationTicks: { type: 'integer', minimum: 1, maximum: 600 },
+        cooldownTicks: { type: 'integer', minimum: 1, maximum: 3600 },
+        amount: { type: 'number', minimum: 1, maximum: 6 },
+      },
+    } },
+    assetRequirements: { type: 'array', maxItems: 16, items: { type: 'string', minLength: 1, maxLength: 500 } },
+    limitations: { type: 'array', maxItems: 17, items: { type: 'string', minLength: 1, maxLength: 600 } },
+    status: { type: 'string', maxLength: 80 },
+  },
+});
+
+export class PlanValidationError extends Error {
+  constructor(message, { path = '/', rule = 'semantic', expected = message, category = 'semantic' } = {}) {
+    super(message); this.name = 'PlanValidationError'; this.code = 'INVALID_PLAN';
+    this.category = category;
+    // Only contract-owned paths, rules and expectations; never received values.
+    this.diagnostics = Object.freeze([Object.freeze({ path, rule, expected })]);
+  }
+}
+function fail(message, details) { throw new PlanValidationError(message, details); }
+function schemaFailure(path, rule, expected) {
+  fail(`Plan format error at ${path || '/'}: expected ${expected}.`, { path: path || '/', rule, expected, category: 'schema' });
+}
+function checkShape(value, schema, path = '') {
+  if (schema.type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) schemaFailure(path, 'type', 'object');
+    // Unknown field names can themselves contain secrets; report the known
+    // parent path, not the name or value supplied by an untrusted response.
+    const names = Object.getOwnPropertyNames(value);
+    if (names.some(key => !Object.hasOwn(schema.properties, key))) schemaFailure(path, 'additionalProperties', 'only declared fields');
+    if (Object.getOwnPropertySymbols(value).length || names.some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return !descriptor.enumerable || !Object.hasOwn(descriptor, 'value');
+    })) schemaFailure(path, 'type', 'plain enumerable data properties');
+    for (const name of schema.required || []) if (!Object.hasOwn(value, name)) schemaFailure(`${path}/${name}`, 'required', 'required field');
+    for (const name of names) checkShape(value[name], schema.properties[name], `${path}/${name}`);
+    return;
+  }
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) schemaFailure(path, 'type', 'array');
+    if (value.length > schema.maxItems) schemaFailure(path, 'maxItems', `at most ${schema.maxItems} items`);
+    if (Object.keys(value).length !== value.length) schemaFailure(path, 'type', 'dense array without extra properties');
+    for (let index = 0; index < value.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) schemaFailure(`${path}/${index}`, 'type', 'plain array item');
+      checkShape(descriptor.value, schema.items, `${path}/${index}`);
+    }
+    return;
+  }
+  if (schema.type === 'string') {
+    if (typeof value !== 'string') schemaFailure(path, 'type', 'string');
+    if (schema.minLength !== undefined && value.trim().length < schema.minLength) schemaFailure(path, 'minLength', 'non-empty string');
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) schemaFailure(path, 'maxLength', `string of at most ${schema.maxLength} characters`);
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) schemaFailure(path, 'pattern', `string matching ${schema.pattern}`);
+  } else if (schema.type === 'number' || schema.type === 'integer') {
+    if (typeof value !== 'number' || !Number.isFinite(value) || (schema.type === 'integer' && !Number.isSafeInteger(value))) schemaFailure(path, 'type', schema.type);
+    if (schema.minimum !== undefined && value < schema.minimum) schemaFailure(path, 'minimum', `number >= ${schema.minimum}`);
+    if (schema.maximum !== undefined && value > schema.maximum) schemaFailure(path, 'maximum', `number <= ${schema.maximum}`);
+  }
+  if (Object.hasOwn(schema, 'const') && value !== schema.const) schemaFailure(path, 'const', JSON.stringify(schema.const));
+  if (schema.enum && !schema.enum.includes(value)) schemaFailure(path, 'enum', `one of ${schema.enum.join(', ')}`);
+}
 function object(value, allowed, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       ![Object.prototype, null].includes(Object.getPrototypeOf(value)) ||
@@ -31,6 +125,7 @@ function canonicalGame(value, label) {
     'terraria': 'terraria', '泰拉瑞亚': 'terraria',
     'gta v': 'gta-v', 'gta5': 'gta-v', 'gta-v': 'gta-v', 'gta 5': 'gta-v',
     'cs': 'counter-strike', 'counter-strike': 'counter-strike', 'counter strike': 'counter-strike',
+    'bannerlord': 'bannerlord', 'mount & blade ii: bannerlord': 'bannerlord', 'mount & blade ii bannerlord': 'bannerlord', '骑马与砍杀2': 'bannerlord', '骑马与砍杀 ii': 'bannerlord',
   };
   return Object.hasOwn(aliases, text.toLowerCase()) ? aliases[text.toLowerCase()] : text;
 }
@@ -82,10 +177,13 @@ function textList(raw, label, maxItems, maxLength) {
 
 export function validatePlan(raw, rawRequest) {
   const request = validateRequest(rawRequest);
+  checkShape(raw, PLAN_PROPOSAL_SCHEMA);
   object(raw, ['schemaVersion', 'title', 'hostGame', 'sourceGame', 'summary', 'requirements', 'mechanics', 'assetRequirements', 'limitations', 'status'], 'plan');
   if (raw.schemaVersion !== 1) fail('Unsupported plan schema version.');
   if (canonicalGame(raw.hostGame, 'plan host game') !== request.hostGame ||
-      canonicalGame(raw.sourceGame, 'plan source game') !== request.sourceGame) fail('The plan changed the requested host or source direction.');
+      canonicalGame(raw.sourceGame, 'plan source game') !== request.sourceGame) fail('The plan changed the requested host or source direction.', {
+        path: '/', rule: 'direction', expected: 'unchanged requested hostGame and sourceGame',
+      });
   if (raw.status !== undefined && typeof raw.status !== 'string') fail('Invalid model-proposed status.');
   const title = string(raw.title, 'plan title', 120);
   const summary = string(raw.summary, 'plan summary', 1800, { multiline: true });

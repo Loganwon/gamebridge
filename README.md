@@ -1,8 +1,10 @@
-# GameBridge — AI Mod 制作工作台
+# GameBridge — AI 玩法制作工作台
 
-用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 调用 DeepSeek 分析需求，检查能力与素材缺口，生成 Mod 源码，并在本地编译、根据编译错误进行有限次数的修复。
+用户描述“在宿主游戏里体验另一款游戏的角色、武器、招式和动作交互”，GameBridge 将需求转为动作规则，检查素材和宿主接口缺口，逐步完成原生 Mod 制作与真实游戏验收。
 
-**当前版本 0.4.1 Alpha：受限代码已在 macOS 操作系统沙盒中通过 21 个契约场景、75 条断言；故意写错的行为也被识别。真实 DeepSeek 生成与编译错误修复经过验证，但本轮新的需求分析出现格式失败，尚不能认为工具稳定可用。真实 Mod 编译及游戏实测仍未验收。** 模拟器通过不等于游戏 API 正确或 Mod 可玩。[沙盒报告（含失败记录）](docs/sandbox-verification.md) · [此前语法验收](docs/deepseek-pipeline-acceptance.md)
+**当前版本 0.5.0 Alpha：新增动作规则设计、确定性回放和宿主能力门控。支持命中条件连段、取消、体力和受击中断的规则表达；尚无已验证动作宿主，不能生成可安装的动作 Mod。** 闪避目前只是规则状态，没有实际位移、动画或碰撞。现有 SMAPI 源码、编译与修复保留为单独管线测试。[动作规则说明](docs/action-rules.md) · [本轮验收](docs/action-workbench-acceptance.md)
+
+此前 SMAPI 自有模拟器在 OS 沙盒通过 21 场景、75 断言，但该轮新分析曾出现格式失败；失败记录继续保留。真实 Mod 编译及游戏实测仍未验收。[历史沙盒报告](docs/sandbox-verification.md)
 
 [公开预览](https://loganwon.github.io/gamebridge/) · [产品目标与开发规划](docs/product-plan.md) · [工具使用与实现状态](docs/ai-mod-workbench.md) · [GitHub](https://github.com/Loganwon/gamebridge)
 
@@ -23,7 +25,9 @@ npm run dev
 
 打开 `http://127.0.0.1:4173`。将 `.env.example` 复制为本地 `.env`，填写 `DEEPSEEK_API_KEY`，或在工作台模型设置中临时输入。配置后重启本地服务。默认端点 `https://api.deepseek.com`，模型 `deepseek-flash`；可改为账号支持的型号。密钥不进入 Git、下载包、浏览器存储或编译子进程。
 
-输入宿主、玩法来源和完整需求，点击“分析需求”。核对计划后可选择：
+首页输入宿主、玩法来源和完整需求，点击“AI 分析并设计动作规则”；也可不调用 AI，回放三种自有规则示例。导出的是设计 JSON。[动作规则与宿主门控](docs/action-rules.md) · [何时准备游戏环境](docs/host-environment.md)
+
+独立 SMAPI 管线入口为 `http://127.0.0.1:4173/pipeline.html`。核对旧版计划后可选择：
 
 - **AI 生成源码**：最多一次代码模型调用，无需游戏环境，下载未编译的源工程。
 - **AI 生成并编译**：先检查环境，再生成源码、编译；仅 C# 源码错误触发模型修复，默认一次、最多两次。
@@ -39,7 +43,7 @@ npm run dev
 
 编译在临时目录运行，固定项目与依赖，不执行模型提供的命令、不执行或自动安装生成 DLL。通过后 ZIP 可包含自有 DLL/PDB；失败时保留已接受的源码和诊断。构建通过仍标记 `game=not_run`、`readyToInstall=false`，需要另行游戏验收。
 
-## 当前生成能力与边界
+## 独立 SMAPI 管线生成边界
 
 当前宿主只有 Stardew Valley / SMAPI，模型只修改受限工程里的 `ModEntry.cs`，项目、依赖、配置与其他文件保持固定。范围仍是明确声明的短时速度 Buff 与近战倍率机制；不是来源游戏的完整冲刺、武器模型、招式或角色系统。GTA/CS、角色与动画资源等继续列为待适配或需素材，不能由模型自行宣布完成。
 
