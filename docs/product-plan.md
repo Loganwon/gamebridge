@@ -59,7 +59,7 @@ A 始终是宿主，B 始终是玩法来源；代码使用 `hostGame` 和 `sourc
 | Skyrim Special Edition | 官方 Creation Kit 支持角色、武器等内容制作，要求对应 PC 游戏与 Windows 环境 | 保留为角色和装备方向的候选；精确动作控制仍需单独证明 |
 | Teardown | 官方 Lua、工具、动画与物理查询接口 | 可研究射击和工具交互；体素表现与当前动作目标的契合度较低，不作为默认主线 |
 
-本规划建议优先研究 Bannerlord，首轮目标环境按 Windows 准备。目前尚未选定或验收任何新宿主，也没有冻结首发游戏组合。需要先具备合法可用的游戏和工具、确认精确版本，再完成同一组准入探针：
+Bannerlord 的三维近战路线值得评估，其首轮环境按 Windows 准备。用户当前没有 Windows，实机选型先核查 macOS 可用宿主；游戏组合尚未冻结，任何新宿主均未验收。需要先具备合法可用的游戏和工具、确认精确版本，再完成同一组准入探针：
 
 - 模块加载并退出，版本与依赖可识别。
 - 输入能够驱动必要动作，不破坏菜单和原生控制。
@@ -70,6 +70,8 @@ A 始终是宿主，B 始终是玩法来源；代码使用 `hostGame` 和 `sourc
 核心能力缺失时停止该路线，记录原因并比较下一个候选；不通过进程注入、内存修改或反作弊规避补齐接口。具体宿主和来源规则包在这一关结束时共同冻结。用户当前没有游戏环境，因此现阶段不能承诺完成日期或宣称已选组合可玩。
 
 来源规格至少冻结：来源游戏与版本、具体武器和招式、参考出处、动作顺序与时序、命中与取消条件、允许近似及误差，以及资源出处。仅有“三段攻击加闪避”的通用描述，不足以证明迁入了某款来源游戏的特征。
+
+tModLoader 进入 macOS 资料评估，尚未进入支持目录或冻结为首发组合。其二维表现与原定三维动作方向的差异需要明确，不能默认为玩家接受。候选变化不改变真实动作与自动制作的验收标准。[环境与候选说明](host-environment.md)
 
 依据：[Bannerlord 官方 Mod 文档](https://moddocs.bannerlord.com/)、[工具安装要求](https://moddocs.bannerlord.com/asset-management/faq/)、[动画导入要求](https://moddocs.bannerlord.com/asset-management/asset-types/animations/)、[版本化 API](https://apidoc.bannerlord.com/)；[Creation Kit 官方说明](https://store.steampowered.com/app/1946180/Skyrim_Special_Edition_Creation_Kit/)；[Teardown 官方 Mod 文档](https://teardowngame.com/modding/)和 [API](https://teardowngame.com/modding/api.html)。以上为候选资料，取舍是产品规划判断，不构成支持声明。
 

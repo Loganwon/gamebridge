@@ -1,12 +1,26 @@
 # GameBridge 动作宿主环境准备
 
-更新于 2026-10-30（Asia/Shanghai）。当前正在开发动作规则、需求分析与宿主能力门控，这些工作无需安装游戏。Bannerlord 是优先研究候选，尚无经过真实游戏验证的动作适配器；目前不需要为本项目购买游戏或上传文件。
+更新于 2026-10-30（Asia/Shanghai）。用户当前没有 Windows 环境，后续先核查 macOS 可用宿主。动作规则、需求分析与宿主能力门控无需安装游戏；目前不需要为本项目购买游戏或上传文件。Bannerlord 保留为 Windows 候选，tModLoader 是待评估的 Mac 路线，两者均未接入 GameBridge。
 
 ## 何时需要准备
 
-进入“宿主与来源准入”阶段、准备执行真实输入与动作探针时，需要一台可供测试的 Windows 设备及游戏环境。届时先记录已安装的游戏、工具和版本，再冻结测试组合。规则模拟、模型分析及编译工具测试不能替代这个阶段。
+进入“宿主与来源准入”阶段、准备执行真实输入与动作探针时，需要所选宿主实际可运行的设备及游戏环境。届时先记录现有游戏、工具和版本，再冻结测试组合。若选择 Bannerlord，其首轮路线按 Windows 准备；当前不要求用户准备 Windows。规则模拟、模型分析及编译工具测试不能替代真实环境。
 
 现有本机为 macOS；它可以继续运行本地工作台与规则测试。仅在 macOS 上填写一个 Windows 安装目录，不能证明 Windows 游戏可运行或完成宿主验收。
+
+## macOS 候选路线
+
+tModLoader 的 Steam 页面明确支持 Mac，并要求拥有 Terraria；1.4.4 路线的系统要求列为 macOS 12 Monterey。它由社区 TML Team 开发，Steam 发布方包括 Re-Logic 和 TML Team。这里将 Terraria 研究为**宿主**，来源动作仍需单独选择与定义。[官方 Steam 页面](https://store.steampowered.com/app/1281930/tModLoader/)
+
+项目自己的开发指南要求 .NET 8 SDK x64，明确提醒不要直接使用 .NET 9/10；本项目现有 .NET 10 不能据此算作 tModLoader 环境就绪。需要先核对实际版本、Mac 架构和运行方式，另行锁定开发环境，当前没有安装额外 SDK。[开发指南](https://github.com/tModLoader/tModLoader/wiki/Developing-with-Visual-Studio-Code)
+
+ModPlayer 文档提供玩家更新、命中与受击等钩子，可作为动作接口调查的依据；规则到实际输入、动画、位移和敌人交互仍需探针验证。[官方项目 API](https://docs.tmodloader.net/docs/stable/class_mod_player.html)
+
+以调研时的 `v2026.08.3.0` 工具源码为例，其目标为 net8.0，引用已安装的 tModLoader 及配套库，打包目标还会启动 tModLoader 构建程序并带有分析器。它不属于现有固定 SMAPI 编译器支持的环境，不能简单更换引用后宣称完成接入；需要独立的构建、工具执行与打包边界。该调研标签不是本机已安装或已验收版本。[该标签的构建目标](https://raw.githubusercontent.com/tModLoader/tModLoader/v2026.08.3.0/patches/tModLoader/Terraria/release_extras/tMLMod.targets)
+
+下一步先确认这条路线能否覆盖预定动作片段，以及本机可用条件，再决定是否进入真实游戏准备。当前候选目录没有 tModLoader 动作适配器；即使填写其名称，仍按未知宿主阻断。
+
+这是一条二维动作候选，不能代表三维骨骼、相机或角色表现已经可转化，也不预设玩家愿意改为二维体验。
 
 ## Bannerlord 候选需要什么
 
