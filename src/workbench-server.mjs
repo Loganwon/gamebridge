@@ -7,27 +7,36 @@ import { resolveProviderConfig } from './ai/provider.mjs';
 import { validateConversionRequest, validateConversionPlan } from './converter/spec.mjs';
 import { generateConversionPlan } from './converter/provider.mjs';
 import { assessConversion, readAdapterCatalog } from './converter/workflow.mjs';
+import { createRunService } from './orchestration/service.mjs';
+import { AGENT_ROLES, createAgentManifest } from './agents/roles.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.json': 'application/json' };
 function failure(status, code, message) { const error = new Error(message); Object.assign(error, { status, code }); return error; }
 
 /** Local conversion-planning service. No code generation, compilation or game execution routes. */
-export function createWorkbenchServer({ root = path.join(ROOT, 'dist'), apiKey = process.env.DEEPSEEK_API_KEY || '', baseUrl = process.env.GAMEBRIDGE_API_BASE || 'https://api.deepseek.com', model = process.env.GAMEBRIDGE_MODEL || 'deepseek-flash', analyzer = generateConversionPlan } = {}) {
+export function createWorkbenchServer({ root = path.join(ROOT, 'dist'), apiKey = process.env.DEEPSEEK_API_KEY || '', baseUrl = process.env.GAMEBRIDGE_API_BASE || 'https://api.deepseek.com', model = process.env.GAMEBRIDGE_MODEL || 'deepseek-flash', analyzer = generateConversionPlan,
+  workflowRoot = process.env.GAMEBRIDGE_STATE_PATH || path.join(ROOT, '.gamebridge'), workflowComplete } = {}) {
   const records = new Map(), active = new Set();
+  const runSecrets = new Set([apiKey].filter(Boolean)); let servicePromise, runService, closing = false;
+  function workflows() {
+    if (closing) throw failure(503, 'RUN_SERVICE_CLOSED', '服务正在关闭。');
+    servicePromise ??= createRunService({ root: workflowRoot, secrets: () => [...runSecrets], ...(workflowComplete ? { complete: workflowComplete } : {}) }).then(service => { runService = service; return service; });
+    return servicePromise;
+  }
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
   function noCredential(value, secrets, code = 'CREDENTIAL_IN_RESPONSE') {
     const serialized = JSON.stringify(value);
     if (typeof serialized !== 'string') return;
     if (secrets.some(secret => secret && serialized.includes(JSON.stringify(secret).slice(1, -1)))) throw failure(502, code, '内容包含凭据，已丢弃且未保存。');
   }
-  async function body(req) {
+  async function body(req, fields = ['request', 'provider']) {
     if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw failure(415, 'JSON_REQUIRED', '请使用 JSON 请求。');
     const chunks = []; let total = 0;
     for await (const bytes of req) { total += bytes.length; if (total > 32768) throw failure(413, 'REQUEST_TOO_LARGE', '请求不能超过 32 KiB。'); chunks.push(bytes); }
     try {
       const input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
-      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['request', 'provider'].includes(key))) throw new Error();
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !fields.includes(key))) throw new Error();
       return input;
     } catch { throw failure(400, 'INVALID_JSON', '请求不是允许的 JSON 对象。'); }
   }
@@ -46,11 +55,42 @@ export function createWorkbenchServer({ root = path.join(ROOT, 'dist'), apiKey =
       if (![`127.0.0.1:${port}`, `localhost:${port}`].includes(host)) throw failure(403, 'INVALID_HOST', '仅接受本机工作台请求。');
       if (req.headers.origin && !origins.includes(req.headers.origin)) throw failure(403, 'INVALID_ORIGIN', '请从本机工作台发起操作。');
       const url = new URL(req.url, origins[0]);
-      if (url.pathname === '/api/config' && req.method === 'GET') return json(res, 200, { local: true, providerConfigured: Boolean(apiKey), defaultProvider: { baseUrl, model }, capabilities: { conversionPlanning: true, projectGeneration: false, compilation: false, gameExecution: false }, adapters: readAdapterCatalog() });
+      if (url.pathname === '/api/config' && req.method === 'GET') return json(res, 200, { local: true, providerConfigured: Boolean(apiKey), defaultProvider: { baseUrl, model }, capabilities: { conversionPlanning: true, multiAgentAnalysis: true, durableWorkflows: true, projectGeneration: false, compilation: false, gameExecution: false }, adapters: readAdapterCatalog() });
       if (url.pathname === '/api/adapters' && req.method === 'GET') return json(res, 200, readAdapterCatalog());
+      if (url.pathname === '/api/agent-roles' && req.method === 'GET') return json(res, 200, { roles: AGENT_ROLES.map(role => ({ ...role, manifest: createAgentManifest(role.id) })), gameAdapters: readAdapterCatalog() });
+      if (url.pathname === '/api/runs' && req.method === 'GET') return json(res, 200, { runs: await (await workflows()).list() });
+      if (url.pathname === '/api/runs' && req.method === 'POST') {
+        const input = await body(req, ['request', 'provider', 'budget']), request = validateConversionRequest(input.request);
+        const provider = resolveProviderConfig(input.provider, { apiKey, baseUrl, model }); secrets.push(provider.apiKey);
+        noCredential(request, secrets, 'CREDENTIAL_IN_REQUEST'); runSecrets.add(provider.apiKey);
+        const service = await workflows();
+        if (active.size) throw failure(429, 'BUSY', '单次分析正在运行，请等待或取消后再启动协作。');
+        const run = await service.create({ request, provider, budget: input.budget }); noCredential(run, secrets);
+        return json(res, 202, run);
+      }
+      const runRoute = url.pathname.match(/^\/api\/runs\/([a-f0-9-]{36})(?:\/(resume|cancel|download))?$/);
+      if (runRoute && req.method === 'GET') {
+        const service = await workflows();
+        if (runRoute[2] && runRoute[2] !== 'download') throw failure(405, 'METHOD_NOT_ALLOWED', '此操作需要 POST。');
+        const run = await service.get(runRoute[1]); noCredential(run, [...runSecrets]);
+        if (!runRoute[2]) return json(res, 200, run);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="gamebridge-workflow-run.json"', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify(run, null, 2) + '\n');
+      }
+      if (runRoute && req.method === 'POST' && runRoute[2] === 'cancel') {
+        await body(req, []); return json(res, 200, await (await workflows()).cancel(runRoute[1]));
+      }
+      if (runRoute && req.method === 'POST' && runRoute[2] === 'resume') {
+        const input = await body(req, ['provider', 'budget', 'allowReplay']);
+        const provider = resolveProviderConfig(input.provider, { apiKey, baseUrl, model }); secrets.push(provider.apiKey); runSecrets.add(provider.apiKey);
+        const service = await workflows();
+        if (active.size) throw failure(429, 'BUSY', '单次分析仍在运行。');
+        const run = await service.resume(runRoute[1], { provider, budget: input.budget, allowReplay: input.allowReplay ?? false }); noCredential(run, secrets);
+        return json(res, 202, run);
+      }
       if (url.pathname === '/api/conversions' && req.method === 'POST') {
         const input = await body(req), request = validateConversionRequest(input.request);
-        if (active.size >= 2) throw failure(429, 'BUSY', '已有分析任务在运行。');
+        if (active.size >= 2 || runService?.activeCount) throw failure(429, 'BUSY', '已有分析或协作任务在运行。');
         const provider = resolveProviderConfig(input.provider, { apiKey, baseUrl, model }); secrets.push(provider.apiKey);
         noCredential(request, secrets, 'CREDENTIAL_IN_REQUEST');
         const controller = new AbortController(), deadline = AbortSignal.timeout(120000);
@@ -89,13 +129,19 @@ export function createWorkbenchServer({ root = path.join(ROOT, 'dist'), apiKey =
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(target)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(req.method === 'HEAD' ? undefined : bytes);
     } catch (error) {
       if (res.writableEnded || res.destroyed) return;
-      const statuses = { PROVIDER_AUTH: 401, PROVIDER_RATE_LIMIT: 429, PROVIDER_TIMEOUT: 504, PROVIDER_NETWORK: 502, PROVIDER_HTTP: 502, INVALID_RESPONSE: 502, INVALID_PLAN: 502, INVALID_CONVERSION_PLAN: 422, INVALID_CONVERSION_REQUEST: 400, ENOENT: 404 };
+      const statuses = { PROVIDER_AUTH: 401, PROVIDER_RATE_LIMIT: 429, PROVIDER_TIMEOUT: 504, PROVIDER_NETWORK: 502, PROVIDER_HTTP: 502, INVALID_RESPONSE: 502, INVALID_PLAN: 502, INVALID_CONVERSION_PLAN: 422, INVALID_CONVERSION_REQUEST: 400, ENOENT: 404,
+        RUN_BUSY: 409, RUN_STORE_BUSY: 409, RUN_NOT_FOUND: 404, RUN_STORE_LIMIT: 409, RUN_STORE_CORRUPT: 409, RUN_STATE_INVALID: 409, RUN_SECRET_DETECTED: 502 };
       let message = error.safeMessage || error.message || '操作失败。';
-      for (const secret of secrets) if (secret) message = message.replaceAll(secret, '[redacted]');
+      for (const secret of [...secrets, ...runSecrets]) if (secret) message = message.replaceAll(secret, '[redacted]');
       json(res, error.status || statuses[error.code] || 400, { error: { code: error.code || 'REQUEST_FAILED', message } });
     }
   });
   const close = server.close.bind(server);
-  server.close = (...args) => { for (const controller of active) controller.abort(); return close(...args); };
+  server.close = callback => {
+    closing = true; for (const controller of active) controller.abort();
+    const settled = Promise.resolve(servicePromise).then(service => service?.close()).then(() => null, error => error);
+    if (typeof callback === 'function') return close(error => { void settled.then(backgroundError => callback(error || backgroundError)); });
+    return close();
+  };
   return server;
 }

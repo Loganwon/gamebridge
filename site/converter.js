@@ -34,7 +34,7 @@ function setBusy(value) {
   for (const id of fields) $(id).disabled = value || !ready;
   for (const input of kindInputs) input.disabled = value || !ready;
   $('analyze').disabled = value || !ready;
-  $('analyze').textContent = value ? '正在拆解转换需求…' : 'AI 分析转换需求';
+  $('analyze').textContent = value ? '正在拆解转换需求…' : '单次需求分析';
   $('cancel-analysis').hidden = !value;
 }
 function clearResult() {
