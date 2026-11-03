@@ -9,7 +9,7 @@ await mkdir(path.join(dist, 'docs'), { recursive: true });
 for (const file of ['index.html', 'converter.css', 'converter.js', 'runs.js']) {
   await copyFile(path.join(root, 'site', file), path.join(dist, file));
 }
-for (const file of ['product-plan.md', 'ai-mod-workbench.md', 'cleanup-record.md', 'task-runtime.md', 'orchestration-verification.md']) {
+for (const file of ['product-plan.md', 'ai-mod-workbench.md', 'cleanup-record.md', 'task-runtime.md', 'orchestration-verification.md', 'capability-check.md']) {
   await copyFile(path.join(root, 'docs', file), path.join(dist, 'docs', file));
 }
 console.log('Built cross-game converter workbench and documentation in dist/');

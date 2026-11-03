@@ -15,6 +15,8 @@
 - 运行状态默认保存在被 Git 忽略的 .gamebridge/，原子快照、版本与每 run 单写者租约用于恢复；不得保存 provider Key，仅记录 origin/model 绑定。服务重启只恢复状态，不自动调用模型。同步 CPU 死循环不在当前线程调度器的可抢占范围，它不是 OS 沙箱；模型当前无执行代码权限。固定 report 始终不将 Agent 提案、contract fixture 或 task succeeded 升级为游戏/构建证据。
 - 将真实模型调用、项目示例、规则/契约模拟、语法检查、真实 Mod 构建和游戏实测分别记录。所有失败和追加尝试保留，旧计划回放与人工修改不能冒充新的自动成功。构建成功不能提升游戏状态或来源保真。
 - 0.7.0 真实 DeepSeek 协作联调共五次无重试：前四角色分析通过结构校验，独立审查 INVALID_AGENT_REPORT，运行 failed；原始拒收输出未保留，具体字段未知。没有游戏适配器、生成、Mod 构建或游戏运行证据，不能声称协作全链路或模型稳定通过。详见 docs/orchestration-verification.md。
+- 2026-11-03 新具体请求真实 DeepSeek 五次、无重试，五角色分析均被接受，随后缺工程生成适配器而 blocked。六项交互与宿主世界/NPC约束被文稿保留，但换弹/弹药边界未定，review issue-3 漏引 req-2；一次成功不能证明稳定、完整规格或 Mod/游戏转换。旧失败未覆盖，完整验收见 docs/capability-check.md。
+- 用户授权沙盒验收后新增 npm run verify:sandbox：macOS OS沙盒内43项通用/Agent模拟测试通过，六项凭据/源码/策略/网络负面探针EPERM；子进程只给6项环境变量（另有OS自动补CF编码名），无凭据继承、模型调用0。策略在可写区外；不是生产任意代码或Mod runner。初始运行时/信号策略失败均保留，不能把纯配置测试算OS验收。详见 docs/capability-check.md。
 - 用户游戏文件、资产、地图、存档和凭据始终本地保留，不进入公开仓库。清理只针对明确识别的项目自有错误原型和产物，不删除用户已有内容，不因清理而重写 Git 历史。
 - npm run dev 仅监听 127.0.0.1，本地服务检查 Host、Origin、JSON 与资源上限。GitHub Pages 只展示界面和说明，不收集 Key，不连接用户本机服务。网页发布、工具版本、Mod 构建和游戏转换分别记录。
 - 用户要求代码持续同步到公开 GitHub 仓库 gamebridge。修改后运行 npm test 和 npm run build，只提交本次项目变更；验证 origin 与认证可用后普通推送并确认结果。不要强推、覆盖既有仓库、提交凭据/用户资源或擅自调整访问权限。
