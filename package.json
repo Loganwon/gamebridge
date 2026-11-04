@@ -1,6 +1,6 @@
 {
   "name": "gamebridge",
-  "version": "0.7.0-alpha.1",
+  "version": "0.8.0-alpha.1",
   "private": true,
   "type": "module",
   "description": "Cross-game AI conversion planning, adapter contracts and evidence-gated workflows",
@@ -9,6 +9,9 @@
     "test": "node --test",
     "build": "node scripts/build.mjs",
     "verify:sandbox": "node scripts/verify-converter-sandbox.mjs",
+    "verify:execution": "node scripts/verify-execution-kernel.mjs",
+    "verify:diagnostics": "node scripts/verify-compiler-diagnostics.mjs",
+    "behavior:compile": "node scripts/compile-behavior.mjs",
     "dev": "node scripts/build.mjs && node --env-file-if-exists=.env scripts/workbench.mjs",
     "github:publish": "node scripts/publish-github.mjs"
   }

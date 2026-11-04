@@ -9,7 +9,7 @@ site/dist/
 .tools/
 .gamebridge/
 output/
-artifacts/
+/artifacts/
 *.log
 *.tar.gz
 *.zip

@@ -97,7 +97,7 @@ await denied('outboundTcpConnect', () => connect('203.0.113.1', 443));
 console.log(JSON.stringify(results));
 `;
 
-export async function verifyConverterSandbox({ artifactRoot = path.join(ROOT, 'artifacts', 'capability-check-20261103', 'sandbox') } = {}) {
+export async function verifyConverterSandbox({ artifactRoot = path.join(ROOT, 'artifacts', 'converter-sandbox') } = {}) {
   absolute(artifactRoot);
   if (process.platform !== 'darwin') return { ...SCOPE, status: 'unavailable', reason: 'macOS sandbox-exec verification requires darwin; no simulation was substituted.' };
   await stat('/usr/bin/sandbox-exec');

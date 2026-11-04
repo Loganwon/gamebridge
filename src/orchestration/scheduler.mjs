@@ -34,9 +34,18 @@ function safeDiagnostics(error) {
 }
 function safeFailure(error, cancelled) {
   const code = dataProperty(error, 'code'), diagnostics = cancelled ? [] : safeDiagnostics(error);
+  const raw = cancelled ? null : dataProperty(error, 'failureArtifact');
+  const artifactKeys = ['schemaVersion', 'id', 'manifestSha256', 'fileCount', 'totalBytes', 'scope'];
+  const values = raw && typeof raw === 'object' && Reflect.ownKeys(raw).length === artifactKeys.length &&
+    artifactKeys.every(key => Object.hasOwn(Object.getOwnPropertyDescriptor(raw, key) || {}, 'value'))
+    ? Object.fromEntries(artifactKeys.map(key => [key, dataProperty(raw, key)])) : null;
+  const failureArtifact = values?.schemaVersion === 1 && values.scope === 'local-tool-artifact' &&
+    typeof values.id === 'string' && typeof values.manifestSha256 === 'string' &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(values.id) &&
+    /^[a-f0-9]{64}$/.test(values.manifestSha256) && integer(values.fileCount, 1, 64) && integer(values.totalBytes, 0, 8 * 1024 * 1024) ? values : null;
   return { code: cancelled ? 'TASK_CANCELLED' : typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : 'TASK_FAILED',
     message: cancelled ? 'Task observation was cancelled; late results were discarded.' : 'Registered task execution did not complete its local contract.',
-    ...(diagnostics.length ? { diagnostics } : {}) };
+    ...(diagnostics.length ? { diagnostics } : {}), ...(failureArtifact ? { failureArtifact } : {}) };
 }
 
 /** Deterministic dependency scheduler. Registered handlers provide data; the

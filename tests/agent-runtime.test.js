@@ -7,7 +7,9 @@ import path from 'node:path';
 import { createRunStore } from '../src/orchestration/store.mjs';
 import { createAgentRuntime } from '../src/agents/runtime.mjs';
 import { generateAgentArtifact } from '../src/agents/provider.mjs';
-import { createAgentTaskGraph } from '../src/agents/workflow.mjs';
+import { AGENT_WORKFLOW_ID, createAgentTaskGraph } from '../src/agents/workflow.mjs';
+import { createAdapterRegistry } from '../src/adapters/registry.mjs';
+import { createScheduler } from '../src/orchestration/scheduler.mjs';
 
 const KEY = 'agent-runtime-test-canary-never-live';
 const provider = { apiKey: KEY, baseUrl: 'https://api.deepseek.com', model: 'test-only-model' };
@@ -41,6 +43,7 @@ test('generic graph executes five isolated roles, parallel research and dependen
       } finally { active--; }
     } });
     const created = await runtime.create(request), result = await runtime.run(created.id);
+    assert.equal(created.context.platform, process.platform);
     assert.equal(result.status, 'blocked'); assert.equal(result.budget.modelCallsReserved, 5);
     assert.equal(calls.length, 5); assert.equal(peak, 2);
     assert.equal(result.tasks.filter(task => task.status === 'succeeded').length, 5);
@@ -62,6 +65,52 @@ test('generic graph executes five isolated roles, parallel research and dependen
     const again = await resumed.resume(created.id);
     assert.equal(again.budget.modelCallsReserved, 5); assert.equal(again.tasks.filter(task => task.status === 'succeeded').length, 5);
     runtime.close(); readonly.close(); resumed.close();
+  });
+});
+
+test('generation receives the full direct analysis context under the locally observed platform', async () => {
+  await scratch(async (_root, store) => {
+    const registry = createAdapterRegistry(), dependencyIds = ['requirements', 'source-research', 'host-research', 'conversion-design', 'independent-review'];
+    let generated = 0;
+    registry.register({ schemaVersion: 1, id: 'host.generation-input-contract', version: '1.0.0', kind: 'host', role: 'conversion-implementation',
+      targets: [{ game: request.hostGame, version: '1.2.3', platform: process.platform, role: 'host' }], contentKinds: ['moveset'],
+      capabilities: [{ id: 'host.project.generate', operation: 'generate', outputTypes: ['mod.project'] }], allowedOperations: ['generate'],
+      execution: { sideEffects: 'none', idempotent: true, modelCallsPerAttempt: 0 }, evidenceScope: 'contract-test-only', references: ['https://example.org/generation-input-contract'],
+      limitations: ['Contract fixture only; does not generate a real project or Mod.'], resourceLimits: { maxInputBytes: 131072, maxOutputBytes: 16384, timeoutMs: 1000 },
+    }, { generate: async ({ input }) => {
+      generated++; assert.equal(input.context.platform, process.platform); assert.deepEqual(Object.keys(input.dependencies), dependencyIds);
+      assert.equal(input.dependencies.requirements.data.role, 'requirements');
+      assert.equal(input.dependencies['conversion-design'].data.role, 'conversion-implementation');
+      assert.ok(input.dependencies['conversion-design'].data.analysis.items[0].description);
+      return { data: { scope: 'contract-test-only', inputRoles: dependencyIds, generatedMod: false } };
+    } });
+    const runtime = createAgentRuntime({ store, registry, provider, complete: mockArtifact });
+    const created = await runtime.create({ ...request, hostVersion: '1.2.3' }), result = await runtime.run(created.id);
+    assert.equal(generated, 1); assert.equal(result.tasks.find(task => task.id === 'generate-project').status, 'succeeded');
+    assert.equal(result.tasks.find(task => task.id === 'compile-mod').attemptCount, 0);
+    assert.equal(result.report.realModBuild, 'not_run'); assert.equal(result.report.game, 'not_run'); assert.equal(result.report.readyToInstall, false);
+    assert.equal(created.graph.find(task => task.id === 'generate-project').inputRefs.length, 6);
+    await assert.rejects(runtime.create({ ...request, platform: 'untrusted-platform' }), { code: 'INVALID_CONVERSION_REQUEST' });
+    await runtime.close();
+  });
+});
+
+test('stored analysis v1 graphs remain readable and resumable without rewriting old inputs or platform', async () => {
+  await scratch(async (_root, store) => {
+    const oldGraph = createAgentTaskGraph(request).tasks, generation = oldGraph.find(task => task.id === 'generate-project');
+    generation.dependsOn = ['independent-review']; generation.inputRefs = ['input:request', 'task:independent-review'];
+    const creator = createScheduler({ store, registry: createAdapterRegistry() });
+    const legacy = await creator.createRun(oldGraph, { context: { workflow: AGENT_WORKFLOW_ID, request,
+      providerBinding: { baseUrl: provider.baseUrl, model: provider.model } } });
+    await creator.close();
+    let calls = 0;
+    const runtime = createAgentRuntime({ store, provider, complete: async (...args) => { calls++; return mockArtifact(...args); } });
+    assert.equal((await runtime.get(legacy.id)).context.platform, undefined);
+    const resumed = await runtime.resume(legacy.id);
+    assert.equal(resumed.status, 'blocked'); assert.equal(calls, 5); assert.equal(resumed.context.platform, undefined);
+    assert.deepEqual(resumed.graph.find(task => task.id === 'generate-project').dependsOn, ['independent-review']);
+    assert.deepEqual(resumed.graph.find(task => task.id === 'generate-project').inputRefs, ['input:request', 'task:independent-review']);
+    assert.equal(resumed.report.game, 'not_run'); await runtime.close();
   });
 });
 

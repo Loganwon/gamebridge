@@ -65,7 +65,7 @@ export function createAgentRuntime({ store, registry = createAdapterRegistry(), 
       ensureOpen();
       const config = settings(), graph = createAgentTaskGraph(rawRequest);
       guard(graph.request, keys());
-      const created = await scheduler.createRun(graph.tasks, { context: { workflow: AGENT_WORKFLOW_ID, request: graph.request,
+      const created = await scheduler.createRun(graph.tasks, { context: { workflow: AGENT_WORKFLOW_ID, platform: process.platform, request: graph.request,
         providerBinding: { baseUrl: config.baseUrl, model: config.model } }, budget });
       ensureOpen(); return created;
     },
@@ -75,7 +75,7 @@ export function createAgentRuntime({ store, registry = createAdapterRegistry(), 
     recover(id) { ensureOpen(); return scheduler.recover(id); },
     cancel(id) { ensureOpen(); return scheduler.cancel(id); },
     close() { closed = true; return scheduler.close(); },
-    describe() { return { workflow: AGENT_WORKFLOW_ID, roles: registry.list({ kind: 'agent' }), gameAdapters: registry.list().filter(item => item.kind !== 'agent'),
+    describe() { return { workflow: AGENT_WORKFLOW_ID, roles: registry.list({ kind: 'agent' }), tools: registry.list({ kind: 'tool' }), gameAdapters: registry.list().filter(item => !['agent', 'tool'].includes(item.kind)),
       analysisOnly: true, realModBuild: 'not_run', game: 'not_run', readyToInstall: false }; },
   };
 }

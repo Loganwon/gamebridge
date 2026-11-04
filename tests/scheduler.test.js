@@ -102,6 +102,26 @@ test('cancellation returns for an uncooperative handler and late output cannot o
   }, { cost: 1 });
 });
 
+test('failed tools retain only bounded local artifact handles and never arbitrary error metadata', async () => {
+  const handle = { schemaVersion: 1, id: '12345678-1234-1234-1234-123456789abc', manifestSha256: '1'.repeat(64),
+    fileCount: 1, totalBytes: 12, scope: 'local-tool-artifact' };
+  for (const [raw, accepted] of [[handle, true], [{ ...handle, path: '/private/raw-error' }, false], [{ ...handle, scope: 'real-game' }, false]]) {
+    await fixture(() => { throw Object.assign(new Error('untrusted-error-text'), { code: 'PORTABLE_COMPILE_FAILED', failureArtifact: raw }); },
+      async ({ scheduler }) => {
+        const created = await scheduler.createRun([task('one')]), result = await scheduler.run(created.id);
+        assert.equal(result.status, 'failed'); assert.equal(result.report.game, 'not_run');
+        assert.deepEqual(result.tasks[0].attempts[0].error.failureArtifact, accepted ? handle : undefined);
+        assert.ok(!JSON.stringify(result).includes('untrusted-error-text')); assert.ok(!JSON.stringify(result).includes('/private/raw-error'));
+      });
+  }
+  let coerced = false;
+  await fixture(() => { throw Object.assign(new Error(), { failureArtifact: { ...handle, id: { toString() { coerced = true; return handle.id; } } } }); },
+    async ({ scheduler }) => {
+      const created = await scheduler.createRun([task('one')]), result = await scheduler.run(created.id);
+      assert.equal(coerced, false); assert.equal(result.tasks[0].attempts[0].error.failureArtifact, undefined);
+    });
+});
+
 test('timeout, missing capabilities and malformed handler output never produce a success artifact', async () => {
   await fixture(() => new Promise(() => {}), async ({ scheduler }) => {
     const created = await scheduler.createRun([task('one', [], { timeoutMs: 50 })]); const start = Date.now();

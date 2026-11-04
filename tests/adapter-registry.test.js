@@ -15,6 +15,15 @@ function gameManifest() {
     capabilities: [{ id: 'host.project.generate', operation: 'generate', outputTypes: ['project.contract'] }], allowedOperations: ['generate'], execution: { sideEffects: 'none', idempotent: true, modelCallsPerAttempt: 0 }, evidenceScope: 'contract-test-only',
     references: ['https://example.org/contract-fixture-specification'], limitations: ['Test-only adapter contract; not a real game implementation.'] };
 }
+function toolManifest() {
+  return { ...manifest(), id: 'tool.contract-compiler', kind: 'tool', role: 'conversion-implementation',
+    toolchains: [{ id: 'node', version: '24.21.0', platform: 'darwin' }], formats: ['gamebridge.behavior.v1'],
+    capabilities: [{ id: 'tool.behavior.compile', operation: 'compile', outputTypes: ['tool.behavior.assembly'] }], allowedOperations: ['compile'],
+    execution: { sideEffects: 'local-write', idempotent: false, modelCallsPerAttempt: 0 }, evidenceScope: 'tool-execution',
+    references: ['https://example.org/contract-tool-specification'], limitations: ['Registry fixture only; no compiler or game is executed.'] };
+}
+function toolTask(extra = {}) { return task({ id: 'compile', kind: 'build', role: 'conversion-implementation', requiredCapabilities: ['tool.behavior.compile'], outputTypes: ['tool.behavior.assembly'], ...extra }); }
+function toolContext() { return { toolchains: [{ id: 'node', version: '24.21.0', platform: 'darwin' }], formats: ['gamebridge.behavior.v1'] }; }
 
 test('registry starts empty and only local function bindings can register executable operations', () => {
   const registry = createAdapterRegistry(); assert.deepEqual(registry.list(), []);
@@ -69,4 +78,61 @@ test('malformed manifests and handler maps cannot invoke getters or inflate perm
   const bindings = {}; Object.defineProperty(bindings, 'analyze', { enumerable: true, get() { accessed++; return async () => {}; } });
   assert.throws(() => createAdapterRegistry().register(manifest(), bindings), { code: 'INVALID_ADAPTER_BINDINGS' }); assert.equal(accessed, 0);
   const large = manifest(); large.limitations = ['x'.repeat(17000)]; assert.throws(() => validateAdapterManifest(large), { code: 'INVALID_ADAPTER_MANIFEST' });
+});
+
+test('generic tools match exact local toolchains and formats without declaring game compatibility', () => {
+  const registry = createAdapterRegistry(), handler = async () => ({ data: { scope: 'tool-contract-fixture-only' } });
+  registry.register(toolManifest(), { compile: handler });
+  assert.equal(registry.resolveTask(toolTask(), toolContext()).handler, handler);
+  assert.equal(registry.resolveTask(toolTask(), { ...toolContext(), request: { hostGame: 'unrelated-host', sourceGame: 'unrelated-source', contentKinds: ['character'] } }).handler, handler);
+  const missing = [ {}, { formats: ['gamebridge.behavior.v1'] }, { toolchains: toolContext().toolchains },
+    { ...toolContext(), toolchains: [{ id: 'node', version: '24.21.1', platform: 'darwin' }] },
+    { ...toolContext(), toolchains: [{ id: 'node', version: '24.21.0', platform: 'win32' }] },
+    { ...toolContext(), toolchains: [{ id: 'dotnet', version: '24.21.0', platform: 'darwin' }] },
+    { ...toolContext(), formats: ['gamebridge.behavior.v2'] },
+  ];
+  for (const context of missing) assert.equal(registry.resolveTask(toolTask(), context).code, 'ADAPTER_CAPABILITY_UNAVAILABLE');
+  const value = toolManifest(); value.toolchains.push({ id: 'dotnet', version: '8.0.427', platform: 'darwin' }); value.formats.push('gamebridge.csharp-project.v1');
+  const multiple = createAdapterRegistry(); multiple.register(value, { compile: handler });
+  assert.equal(multiple.resolveTask(toolTask(), toolContext()).blocked, true);
+  assert.equal(multiple.resolveTask(toolTask(), { toolchains: value.toolchains, formats: value.formats }).handler, handler);
+  const listed = registry.list({ kind: 'tool' }); listed[0].toolchains[0].version = '0.0.0';
+  assert.equal(registry.get(value.id).toolchains[0].version, '24.21.0');
+});
+
+test('tool manifests and tasks cannot promote tool execution to Mod or game evidence', () => {
+  const mutations = [
+    m => { m.targets = [{ game: 'contract-host', version: '1.0.0', platform: 'darwin', role: 'host' }]; },
+    m => { m.contentKinds = ['rules']; }, m => { m.evidenceScope = 'real-game'; }, m => { m.evidenceScope = 'real-mod-build'; },
+    m => { m.execution.sideEffects = 'external'; }, m => { m.capabilities[0].id = 'host.project.generate'; },
+    m => { m.capabilities[0].outputTypes = ['mod.build']; }, m => { m.capabilities[0].outputTypes = ['game.acceptance']; },
+    m => { m.toolchains = []; }, m => { m.toolchains[0].version = 'latest'; }, m => { m.toolchains[0].version = '^24.0.0'; },
+    m => { m.toolchains[0].version = '24.1.0-01'; }, m => { m.toolchains[0].platform = 'any'; },
+    m => { m.toolchains.push({ ...m.toolchains[0] }); }, m => { m.formats = []; }, m => { m.formats = ['../file']; },
+    m => { m.references = []; }, m => { m.command = 'must-not-be-executed'; },
+  ];
+  for (const mutate of mutations) { const value = toolManifest(); mutate(value); assert.throws(() => validateAdapterManifest(value), { code: 'INVALID_ADAPTER_MANIFEST' }); }
+  for (const value of [{ ...manifest(), toolchains: [] }, { ...gameManifest(), formats: [] }, { ...gameManifest(), evidenceScope: 'tool-execution' }]) {
+    assert.throws(() => validateAdapterManifest(value), { code: 'INVALID_ADAPTER_MANIFEST' });
+  }
+  const registry = createAdapterRegistry(); registry.register(toolManifest(), { compile: async () => ({ data: {} }) });
+  assert.equal(registry.resolveTask(toolTask({ kind: 'generation' }), toolContext()).operation, 'compile');
+  for (const extra of [{ kind: 'game' }, { outputTypes: ['mod.build'] }, { outputTypes: ['game.acceptance'] }, { requiredCapabilities: ['host.project.generate'] }]) {
+    assert.equal(registry.resolveTask(toolTask(extra), toolContext()).blocked, true);
+  }
+  const contract = toolManifest(); contract.evidenceScope = 'contract-test-only'; assert.equal(validateAdapterManifest(contract).evidenceScope, 'contract-test-only');
+});
+
+test('tool context rejects malformed data without evaluating context or nested accessors', () => {
+  const registry = createAdapterRegistry(); registry.register(toolManifest(), { compile: async () => ({ data: {} }) });
+  let invoked = 0;
+  const context = { formats: ['gamebridge.behavior.v1'] };
+  Object.defineProperty(context, 'toolchains', { enumerable: true, get() { invoked++; return toolContext().toolchains; } });
+  assert.equal(registry.resolveTask(toolTask(), context).blocked, true);
+  const nested = toolContext(); Object.defineProperty(nested.toolchains[0], 'version', { enumerable: true, get() { invoked++; return '24.21.0'; } });
+  assert.equal(registry.resolveTask(toolTask(), nested).blocked, true); assert.equal(invoked, 0);
+  const kind = toolManifest(); Object.defineProperty(kind, 'kind', { enumerable: true, get() { invoked++; return 'tool'; } });
+  assert.throws(() => validateAdapterManifest(kind), { code: 'INVALID_ADAPTER_MANIFEST' }); assert.equal(invoked, 0);
+  registry.register({ ...toolManifest(), id: 'tool.alternative-compiler' }, { compile: async () => ({ data: {} }) });
+  assert.equal(registry.resolveTask(toolTask(), toolContext()).code, 'ADAPTER_SELECTION_AMBIGUOUS');
 });
