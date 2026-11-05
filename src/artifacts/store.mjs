@@ -188,9 +188,11 @@ export async function createArtifactStore(raw = {}) {
       accepted.push({ path: names[index], content, mediaType });
     }
     await verifyRoots(); const id = randomUUID(), stagingPath = await mkdtemp(path.join(temporary.file, 'pending-'));
-    let committed = false;
+    const target = path.join(objects.file, id);
+    let committed = false, renamed = false, staging;
     try {
-      const staging = await privateDirectory(stagingPath), fileRoot = await privateDirectory(path.join(staging.file, 'files'), { create: true });
+      staging = await privateDirectory(stagingPath);
+      const fileRoot = await privateDirectory(path.join(staging.file, 'files'), { create: true });
       const manifest = { schemaVersion: 1, id, scope: SCOPE, fileCount: accepted.length, totalBytes,
         files: accepted.map(file => ({ path: file.path, sha256: digest(file.content), bytes: file.content.length, mediaType: file.mediaType })), provenance: structuredClone(provenance) };
       metadata(manifest); const bytes = Buffer.from(JSON.stringify(manifest)); guardBytes(bytes);
@@ -203,9 +205,23 @@ export async function createArtifactStore(raw = {}) {
       try { await writer.writeFile(bytes); await writer.sync(); } finally { await writer.close(); }
       cancelled(signal); for (const file of accepted) guardBytes(file.content); metadata(manifest);
       await verifyRoots(); await verifyDirectory(staging); await syncDirectory(staging.file);
-      const target = path.join(objects.file, id); await rename(staging.file, target); committed = true; await syncDirectory(objects.file);
+      // Cancellation may arrive during directory checks/fsync or while rename
+      // is pending. A renamed object is not accepted until the final check;
+      // if admission is cancelled, roll back only this newly created object.
+      cancelled(signal);
+      await rename(staging.file, target); renamed = true;
+      cancelled(signal);
+      await syncDirectory(objects.file);
+      cancelled(signal); committed = true;
       return { schemaVersion: 1, id, manifestSha256: digest(bytes), fileCount: accepted.length, totalBytes, scope: SCOPE };
-    } finally { if (!committed) await rm(stagingPath, { recursive: true, force: true }); }
+    } finally {
+      if (!committed) {
+        if (renamed) {
+          await verifyRoots(); await verifyDirectory({ ...staging, file: target });
+          await rm(target, { recursive: true, force: true }); await syncDirectory(objects.file);
+        } else await rm(stagingPath, { recursive: true, force: true });
+      }
+    }
   }
   return {
     create,

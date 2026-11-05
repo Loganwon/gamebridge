@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, writeFile, rm, symlink, link, rename, stat } from 'node:fs/promises';
+import filesystem, { mkdtemp, mkdir, readFile, readdir, writeFile, rm, symlink, link, rename, stat, realpath } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import os from 'node:os';
 import { createArtifactStore, validateArtifactPath } from '../src/artifacts/store.mjs';
@@ -130,4 +131,49 @@ test('byte/file limits, cancellation and partial materialization failures leave 
   await assert.rejects(store.capture({ directory: work, paths: ['too-big'] }), { code: 'ARTIFACT_CORRUPT' });
   await assert.rejects(store.capture({ directory: work, paths: ['b'] }, { signal: AbortSignal.abort() }), { code: 'ARTIFACT_CANCELLED' });
   assert.equal((await readdir(path.join(root, 'objects'))).length, 1);
+}));
+
+// Instrument only the test process's actual filesystem boundary. Each wrapper
+// performs the real operation before cancellation; production exposes no test
+// hook, and these checks never depend on the number of signal.aborted reads.
+for (const phase of ['staging-sync', 'rename', 'objects-sync']) test(`cancellation during ${phase} cannot publish a late object or delete an earlier artifact`, async () => fixture(async ({ root }) => {
+  const store = await createArtifactStore({ root }), previous = await store.create({ files: [{ path: 'retained.txt', content: 'already-accepted' }] });
+  const canonical = await realpath(root), objectsPath = path.join(canonical, 'objects'), temporaryPath = path.join(canonical, 'temporary');
+  const originalOpen = filesystem.open, originalRename = filesystem.rename, controller = new AbortController();
+  let observed = false, renameObserved = false;
+  filesystem.open = async (file, ...args) => {
+    const handle = await originalOpen(file, ...args);
+    const selected = phase === 'staging-sync' ? path.dirname(String(file)) === temporaryPath && path.basename(String(file)).startsWith('pending-') : phase === 'objects-sync' && file === objectsPath;
+    if (!selected || observed) return handle;
+    return {
+      async sync() {
+        await handle.sync(); observed = true;
+        // Cancellation occurs after a real directory fsync, before its async
+        // caller resumes. The objects-sync case is already past rename.
+        if (phase === 'objects-sync') assert.equal((await readdir(objectsPath)).length, 2);
+        controller.abort();
+      },
+      close: () => handle.close(),
+    };
+  };
+  filesystem.rename = async (from, to) => {
+    await originalRename(from, to);
+    if (path.dirname(String(to)) === objectsPath) {
+      renameObserved = true;
+      if (phase === 'rename') {
+        assert.ok((await readdir(to)).includes('manifest.json')); observed = true; controller.abort();
+      }
+    }
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(store.create({ files: [{ path: 'cancelled.txt', content: 'never-accepted' }] }, { signal: controller.signal }), { code: 'ARTIFACT_CANCELLED' });
+    assert.equal(observed, true, 'the selected real asynchronous boundary was reached');
+    assert.equal(renameObserved, phase !== 'staging-sync');
+  } finally {
+    filesystem.open = originalOpen; filesystem.rename = originalRename; syncBuiltinESMExports();
+  }
+  assert.deepEqual(await readdir(objectsPath), [previous.id]);
+  assert.deepEqual(await readdir(temporaryPath), []);
+  assert.equal((await store.readFile(previous, 'retained.txt')).toString(), 'already-accepted');
 }));

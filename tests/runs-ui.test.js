@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 
 const FIRST = '12345678-1234-1234-1234-123456789abc';
 const SECOND = '23456789-2345-2345-2345-23456789abcd';
+const PROJECT_WORKFLOW = 'gamebridge.conversion-project.v1', ANALYSIS_WORKFLOW = 'gamebridge.multi-agent-analysis.v1';
 function element() {
   const events = new Map(), attributes = new Map();
   return {
@@ -18,15 +19,15 @@ function element() {
     reportValidity() { return true; }, focus() {},
   };
 }
-function configuration(enabled = true) {
-  return { local: true, providerConfigured: true, defaultProvider: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }, capabilities: { multiAgentAnalysis: enabled } };
+function configuration(enabled = true, unified = false) {
+  return { local: true, providerConfigured: true, defaultProvider: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }, capabilities: { multiAgentAnalysis: enabled, unifiedConversionWorkflow: unified, behaviorSpecification: unified, adapterProjectDrafts: unified } };
 }
-function run({ id = FIRST, status = 'blocked', maxModelCalls = 5, tasks, report } = {}) {
+function run({ id = FIRST, status = 'blocked', maxModelCalls = 5, tasks, report, workflow = ANALYSIS_WORKFLOW, graph, projectDownloadUrl, description = '保留角色、资源与交互完整要求。' } = {}) {
   return { schemaVersion: 1, id, status, budget: { maxModelCalls, modelCallsReserved: 5 },
-    context: { request: { hostGame: 'host-world', sourceGame: 'source-content' } },
-    graph: [{ id: 'requirements', role: 'requirements', kind: 'analysis', dependsOn: [] }],
+    context: { workflow, request: { hostGame: 'host-world', sourceGame: 'source-content', description } },
+    graph: graph || [{ id: 'requirements', role: 'requirements', kind: 'analysis', dependsOn: [] }],
     tasks: tasks || [{ id: 'requirements', status: 'succeeded', attemptCount: 1, attempts: [], result: { data: { summary: 'control-flow fixture only' }, artifact: { scope: 'analysis-only' } } }],
-    report: report || { realModBuild: 'not_run', game: 'not_run', readyToInstall: false } };
+    ...(projectDownloadUrl ? { projectDownloadUrl } : {}), report: report || { realModBuild: 'not_run', game: 'not_run', readyToInstall: false } };
 }
 const response = data => ({ ok: true, json: async () => data });
 async function flush() { for (let i = 0; i < 16; i++) await Promise.resolve(); }
@@ -37,7 +38,8 @@ async function load({ hostname = '127.0.0.1', config = configuration(), history 
   const calls = [], timers = new Map(); let timerSequence = 0;
   Object.assign(nodes.get('provider-base'), { value: 'https://api.deepseek.com' });
   Object.assign(nodes.get('provider-model'), { value: 'deepseek-flash' });
-  Object.assign(nodes.get('model-budget'), { value: '5' });
+  Object.assign(nodes.get('model-budget'), { value: '6' });
+  Object.assign(nodes.get('workflow-mode'), { value: PROJECT_WORKFLOW });
   nodes.get('host-game').value = 'host-world'; nodes.get('source-game').value = 'source-content'; nodes.get('description').value = '保留角色、资源与交互完整要求。';
   const context = {
     document: { getElementById: name => nodes.get(name), createElement: element, querySelectorAll: () => kinds }, location: { hostname }, URL, AbortSignal, AbortController,
@@ -78,9 +80,86 @@ test('start requires an explicit click and sends the full brief with total five-
   await nodes.get('start-run').dispatch('click');
   const starts = calls.filter(call => call.url === '/api/runs' && call.method === 'POST'); assert.equal(starts.length, 1);
   assert.deepEqual(starts[0].body.budget, { maxModelCalls: 5 });
+  assert.equal(starts[0].body.workflow, ANALYSIS_WORKFLOW);
   assert.deepEqual(starts[0].body.request, { hostGame: 'host-world', sourceGame: 'source-content', description: '保留角色、资源与交互完整要求。', contentKinds: ['character', 'moveset'] });
   assert.equal(starts[0].body.provider.apiKey, '');
   assert.equal(nodes.get('download-run').href, `/api/runs/${FIRST}/download`);
+});
+
+test('the unified flow is selected with six calls only when its local capability is present', async () => {
+  const snapshot = run({ workflow: PROJECT_WORKFLOW, maxModelCalls: 6 });
+  const { nodes, calls } = await load({ config: configuration(true, true), snapshot });
+  assert.equal(nodes.get('workflow-mode').value, PROJECT_WORKFLOW); assert.equal(nodes.get('model-budget').value, '6');
+  assert.match(nodes.get('workflow-budget-hint').textContent, /6 次/);
+  assert.ok(calls.every(call => call.method === 'GET'));
+  await nodes.get('start-run').dispatch('click');
+  const sent = calls.find(call => call.method === 'POST' && call.url === '/api/runs').body;
+  assert.equal(sent.workflow, PROJECT_WORKFLOW); assert.deepEqual(sent.budget, { maxModelCalls: 6 });
+  assert.equal(sent.request.description, '保留角色、资源与交互完整要求。');
+});
+
+test('selection keeps the five-call flow available and cannot request an unadvertised unified flow', async () => {
+  const ui = await load({ config: configuration(true, true) });
+  ui.nodes.get('workflow-mode').value = ANALYSIS_WORKFLOW; await ui.nodes.get('workflow-mode').dispatch('change');
+  assert.equal(ui.nodes.get('model-budget').value, '5');
+  await ui.nodes.get('start-run').dispatch('click');
+  assert.equal(ui.calls.find(call => call.method === 'POST').body.workflow, ANALYSIS_WORKFLOW);
+  const older = await load();
+  older.nodes.get('workflow-mode').value = PROJECT_WORKFLOW; await older.nodes.get('workflow-mode').dispatch('change');
+  assert.equal(older.nodes.get('start-run').disabled, true); await older.nodes.get('start-run').dispatch('click');
+  assert.ok(older.calls.every(call => call.method === 'GET')); assert.match(older.nodes.get('run-error').textContent, /尚未提供统一转换流程/);
+});
+
+test('loading an older run retains its workflow and existing total budget for explicit resume', async () => {
+  const previous = run({ status: 'interrupted', maxModelCalls: 9 });
+  const { nodes, calls } = await load({ config: configuration(true, true), history: [previous], snapshot: previous });
+  await nodes.get('run-history').children[0].dispatch('click'); await flush();
+  assert.equal(nodes.get('workflow-mode').value, ANALYSIS_WORKFLOW); assert.equal(nodes.get('model-budget').value, '9');
+  await nodes.get('resume-run').dispatch('click');
+  const resumed = calls.find(call => call.url.endsWith('/resume')).body;
+  assert.deepEqual(resumed.budget, { maxModelCalls: 9 }); assert.equal(resumed.allowReplay, false); assert.equal(Object.hasOwn(resumed, 'workflow'), false);
+});
+
+function textContent(value) { return [value.textContent || '', ...value.children.map(textContent)].join(' '); }
+function draftRun(projectDownloadUrl = `/api/runs/${FIRST}/project`) {
+  const proposal = { summary: '受限状态机提案', spec: { states: ['idle', 'active'], events: [{ id: 'begin' }], transitions: [{ id: 'begin-action' }], requirementIds: ['req-1', 'req-2'], unresolved: [{ requirementId: 'req-2', reason: '角色模型与动画不在整数状态机范围内。' }] }, assumptions: ['时序值需要来源证据。'], limitations: ['尚未绑定宿主输入或实体接口。'] };
+  const metadata = { scope: 'adapter-project-draft', filePaths: ['Behavior.g.cs', 'HostBridge.g.cs', 'binding-requirements.json'], requirementIds: ['req-1', 'req-2'], unresolvedRequirementIds: ['req-2'], blockers: [{ code: 'HOST_BINDING_REQUIRED', requirementIds: ['req-1', 'req-2'], message: '宿主事件与实体效果尚未实现。' }] };
+  const task = (id, data, kind) => ({ definition: { id, kind, role: 'conversion-implementation', dependsOn: [] }, state: { id, status: 'succeeded', attemptCount: 1, attempts: [], result: { data, artifact: { scope: 'tool-execution' } } } });
+  const entries = [task('specify-behavior', { proposal }, 'planning'), task('validate-behavior', { proposal, requirementIds: proposal.spec.requirementIds, unresolvedRequirementIds: ['req-2'] }, 'validation'), task('generate-adapter-project', { metadata, project: { scope: 'local-tool-artifact', id: SECOND, manifestSha256: 'a'.repeat(64) } }, 'generation')];
+  return run({ workflow: PROJECT_WORKFLOW, maxModelCalls: 6, projectDownloadUrl, description: '完整原始需求：' + '保留角色、武器和全部动作交互。'.repeat(300), graph: entries.map(item => item.definition), tasks: entries.map(item => item.state) });
+}
+
+test('unified output shows spec gaps and project files while preserving the full brief and raw data', async () => {
+  const snapshot = draftRun();
+  const { nodes, html } = await load({ config: configuration(true, true), snapshot }); await nodes.get('start-run').dispatch('click');
+  const rendered = textContent(nodes.get('run-tasks'));
+  for (const text of ['AI 行为规格提案', '行为规格结构校验', '生成适配工程草稿', '角色模型与动画不在整数状态机范围内', 'HostBridge.g.cs', '宿主事件与实体效果尚未实现', '不能直接安装进游戏']) assert.ok(rendered.includes(text), text);
+  assert.equal(nodes.get('run-brief').children[0].children[2].textContent, snapshot.context.request.description);
+  assert.equal(nodes.get('download-project').hidden, false); assert.equal(nodes.get('download-project').href, `/api/runs/${FIRST}/project`);
+  assert.equal(nodes.get('run-status').textContent, '工程草稿已生成 · 等待宿主适配');
+  assert.match(nodes.get('run-summary').textContent, /适配工程草稿已保存/); assert.match(nodes.get('run-summary').textContent, /真实 Mod 构建和游戏仍未运行/);
+  const last = nodes.get('run-tasks').children.at(-1).children.at(-1);
+  assert.equal(last.children[1].textContent, JSON.stringify({ artifact: snapshot.tasks.at(-1).result.artifact, data: snapshot.tasks.at(-1).result.data }, null, 2));
+  assert.doesNotMatch(html, /id="(?:install|download-mod|compile-mod)"/);
+});
+
+test('draft status wording preserves failures and gives active recovery priority', async () => {
+  const failed = draftRun(); failed.status = 'failed';
+  const failure = await load({ config: configuration(true, true), snapshot: failed }); await failure.nodes.get('start-run').dispatch('click');
+  assert.equal(failure.nodes.get('run-status').textContent, '失败');
+  const recovering = draftRun(); recovering.observation = { active: true };
+  const active = await load({ config: configuration(true, true), snapshot: recovering }); await active.nodes.get('start-run').dispatch('click');
+  assert.equal(active.nodes.get('run-status').textContent, '正在调度恢复');
+});
+
+test('project links require a succeeded private draft and the exact current-run local endpoint', async () => {
+  for (const url of ['https://untrusted.example/project.zip', `/api/runs/${SECOND}/project`, `/api/runs/${FIRST}/project?key=forged`]) {
+    const { nodes } = await load({ config: configuration(true, true), snapshot: draftRun(url) }); await nodes.get('start-run').dispatch('click');
+    assert.equal(nodes.get('download-project').hidden, true); assert.equal(nodes.get('download-project').href, undefined);
+  }
+  const incomplete = draftRun(); incomplete.tasks.at(-1).status = 'failed';
+  const { nodes } = await load({ config: configuration(true, true), snapshot: incomplete }); await nodes.get('start-run').dispatch('click');
+  assert.equal(nodes.get('download-project').hidden, true);
 });
 
 test('resume transmits explicit replay consent and total budget instead of resetting spent calls', async () => {

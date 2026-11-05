@@ -131,7 +131,9 @@ async function connect() {
     $('provider-base').value = config.defaultProvider.baseUrl; $('provider-model').value = config.defaultProvider.model;
     $('model-settings').hidden = false; ready = true; credentialHint();
     $('connection').textContent = '本地转换工作台已连接';
-    $('runtime-notice').textContent = '当前可调用云端模型分析完整转换需求。没有已验收游戏适配器，工程生成、构建和游戏实测仍保持阻断。';
+    $('runtime-notice').textContent = config.capabilities?.unifiedConversionWorkflow === true
+      ? '统一流程可连接 AI 分析、行为规格与本地适配工程草稿。尚无已验收游戏适配器，正式 Mod 工程、构建和游戏实测仍保持阻断；不会自动启动游戏。'
+      : '当前可调用云端模型分析完整转换需求。没有已验收游戏适配器，工程生成、构建和游戏实测仍保持阻断。';
   } catch { ready = false; $('connection').textContent = '本地服务未连接 · 请运行 npm run dev'; }
   setBusy(false);
 }

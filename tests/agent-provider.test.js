@@ -11,6 +11,17 @@ function plan() { return { schemaVersion: 1, title: '转换需求', hostGame: re
 function report() { return { schemaVersion: 1, summary: '未验证的研究或转换建议。', items: [{ id: 'proposal', requirementIds: ['moves'], description: '保留来源动作规格与资源缺口。', nextStep: '核对精确版本和正式接口。' }], questions: [], limitations: ['没有浏览、读取游戏、编译或运行。'] }; }
 function review() { return { schemaVersion: 1, summary: '仅审查方案。', coverage: [{ requirementId: 'moves', assessment: 'unclear', reason: '尚无实际资源和接口证据。' }], issues: [{ id: 'unverified', requirementIds: ['moves'], description: '需要后续真实验收。' }], limitations: ['方案完整性意见不是游戏成功。'] }; }
 function completion(value, finish_reason = 'stop') { return new Response(JSON.stringify({ choices: [{ finish_reason, message: { content: JSON.stringify(value) } }] })); }
+test('review diagnostics identify known excess fields while excluding untrusted property names', () => {
+  const upstream = [{ schemaVersion: 1, role: 'requirements', scope: 'analysis-only', evidenceScope: 'unverified-proposal', hostGame: request.hostGame, sourceGame: request.sourceGame,
+    analysis: plan(), realModBuild: 'not_run', game: 'not_run', readyToInstall: false }];
+  assert.throws(() => validateAgentProposal('independent-validation', { ...review(), questions: [] }, { request, upstream }), error => {
+    assert.equal(error.code, 'INVALID_AGENT_REPORT'); assert.equal(error.diagnostics[0].path, '/questions'); assert.equal(error.diagnostics[0].rule, 'property'); return true;
+  });
+  const privateProperty = 'untrusted-property-with-private-canary';
+  assert.throws(() => validateAgentProposal('independent-validation', { ...review(), [privateProperty]: 'value' }, { request, upstream }), error => {
+    assert.equal(error.diagnostics[0].path, '/'); assert.ok(!JSON.stringify(error.diagnostics).includes(privateProperty)); return true;
+  });
+});
 async function invoke(role, upstream, value, inspect = () => {}) {
   let calls = 0;
   const result = await generateAgentArtifact(role, request, upstream, { apiKey: KEY, fetchImpl: async (url, options) => {

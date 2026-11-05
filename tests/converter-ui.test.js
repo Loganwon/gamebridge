@@ -66,6 +66,14 @@ test('malformed local configuration leaves all cloud controls disabled', async (
   }
 });
 
+test('unified service notice distinguishes project drafts from actual Mod generation and game execution', async () => {
+  const config = { ...configuration(), capabilities: { unifiedConversionWorkflow: true } };
+  const { nodes } = await load({ config });
+  assert.match(nodes.get('runtime-notice').textContent, /AI 分析、行为规格与本地适配工程草稿/);
+  assert.match(nodes.get('runtime-notice').textContent, /正式 Mod 工程、构建和游戏实测仍保持阻断/);
+  assert.match(nodes.get('runtime-notice').textContent, /不会自动启动游戏/);
+});
+
 test('converter submits host/source direction, full requirements, kinds and explicit versions unchanged', async () => {
   const { nodes, kinds, calls } = await load();
   kinds[0].checked = true; kinds[2].checked = true;
