@@ -11,8 +11,15 @@ test('host profile keeps app read-only, policy and credentials denied and networ
   assert.match(profile, /\(allow file-write\* \(subpath "\/private\/probe-work"\)\)/);
   assert.ok(profile.includes('(subpath "/trusted/Host.app")')); assert.ok(profile.includes('(global-name "com.apple.windowserver.active")'));
   for (const service of ['com.apple.CARenderServer', 'com.apple.cvmsServ', 'com.apple.windowmanager.server', 'com.apple.dock.server']) assert.ok(profile.includes('(global-name ' + JSON.stringify(service) + ')'));
+  for (const service of ['com.apple.tccd', 'com.apple.tccd.system']) assert.ok(profile.includes('(global-name ' + JSON.stringify(service) + ')'));
   assert.ok(!profile.includes('(allow mach-lookup)')); assert.ok(!profile.includes('(subpath "/Users")'));
-  assert.ok(!profile.includes('allow ipc-posix-shm')); assert.ok(!profile.includes('apple.cfprefs.501v1'));
+  assert.ok(profile.includes('(allow ipc-posix-shm-read* (ipc-posix-name "apple.shm.notification_center"))'));
+  assert.ok(!profile.includes('apple.cfprefs.501v1')); assert.ok(!profile.includes('(allow ipc-posix-shm-write'));
+  for (const service of ['com.apple.axserver', 'com.apple.tsm.portname', 'com.apple.coredrag']) assert.ok(profile.includes('(local-name ' + JSON.stringify(service) + ')'));
+  assert.ok(!profile.includes('(allow mach-register (local-name-prefix'));
+  assert.ok(profile.includes('(allow iokit-open-user-client (iokit-user-client-class "IOSurfaceRootUserClient" "AGXDeviceUserClient" "IOGPUGLDrawableUserClient" "IOGPUSurfaceMTL"))'));
+  assert.ok(!profile.includes('IOHIDParamUserClient')); assert.ok(!profile.includes('(allow iokit-open)'));
+  assert.ok(profile.includes('(allow mach-lookup (xpc-service-name "com.apple.MTLCompilerService"))'));
   assert.match(profile, /\(deny file-read\*[^\n]*\/private\/probe-policy[^\n]*\/Library\/Keychains[^\n]*\/project\/\.env/);
   assert.ok(!profile.includes('(subpath "/Library")'));
   assert.ok(profile.includes('(subpath "/Library/Apple/usr/libexec/oah")'));
@@ -30,6 +37,8 @@ test('host environment is fixed and excludes inherited keys and interpreter hook
     const env = hostProbeEnvironment('/private/probe-work');
     assert.equal(env.PATH, '/usr/bin:/bin'); assert.equal(env.HOME, '/private/probe-work'); assert.equal(env.TMPDIR, '/private/probe-work');
     assert.equal(env.XDG_CONFIG_HOME, '/private/probe-work'); assert.ok(!JSON.stringify(env).includes('synthetic-host-credential-canary'));
+    assert.equal(env.SDL_MAC_BACKGROUND_APP, '0');
+    assert.equal(env.SDL_RENDER_DRIVER, 'software');
     for (const key of keys) assert.equal(Object.hasOwn(env, key), false);
   } finally { for (const key of keys) if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }
 });

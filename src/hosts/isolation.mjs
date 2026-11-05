@@ -5,12 +5,19 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
+import { createGuiHostInvocation } from './gui-launch.mjs';
 
 const MAX_OUTPUT = 256 * 1024, MAX_EXECUTABLE = 512 * 1024 * 1024;
 const GUI_SERVICES = Object.freeze(['com.apple.windowserver.active', 'com.apple.windowserver',
   // Observed native SDL/OpenGL service lookups, not arbitrary GUI IPC access.
   // No preference-userdata, POSIX shared-memory, file or network grant follows.
   'com.apple.CARenderServer', 'com.apple.cvmsServ', 'com.apple.windowmanager.server', 'com.apple.dock.server',
+  // Native AppKit registration/window bridge endpoints observed in launch logs.
+  // This does not grant Apple Events automation/TCC consent to another app.
+  'com.apple.CoreServices.coreservicesd', 'com.apple.coreservices.appleevents', 'com.apple.window_proxies', 'com.apple.ViewBridgeAuxiliary',
+  // Native accessibility authorization queries. This grants no TCC consent
+  // and does not permit edits to system privacy databases or another app.
+  'com.apple.tccd', 'com.apple.tccd.system',
   'com.apple.cfprefsd.daemon', 'com.apple.cfprefsd.agent', 'com.apple.FontObjectsServer',
   'com.apple.fonts', 'com.apple.system.notification_center', 'com.apple.system.opendirectoryd.libinfo',
   'com.apple.lsd.mapdb', 'com.apple.coreservices.launchservicesd', 'com.apple.hiservices-xpcservice']);
@@ -43,7 +50,14 @@ export function hostProbeSandboxProfile(raw) {
   if (!appRoot.endsWith('.app') || [appRoot, workRoot, policyRoot].includes('/') || inside(workRoot, policyRoot) || inside(workRoot, appRoot) || inside(appRoot, workRoot)) fail('INVALID_HOST_PROBE_PATH', 'A dedicated application bundle and policy must remain outside the writable probe directory.');
   return ['(version 1)', '(deny default)', '(allow process*)', '(allow signal (target self) (target children))',
     '(allow sysctl-read)', '(allow file-read-metadata)',
+    // Per-process native GUI services; not global service registration.
+    '(allow mach-register (local-name "com.apple.axserver") (local-name "com.apple.tsm.portname") (local-name "com.apple.coredrag"))',
+    '(allow ipc-posix-shm-read* (ipc-posix-name "apple.shm.notification_center"))',
+    // Exact render/presentation clients observed denied by the native game.
+    // No general IOKit, HID, display capture or framebuffer grant.
+    '(allow iokit-open-user-client (iokit-user-client-class "IOSurfaceRootUserClient" "AGXDeviceUserClient" "IOGPUGLDrawableUserClient" "IOGPUSurfaceMTL"))',
     '(allow mach-lookup ' + GUI_SERVICES.map(name => '(global-name ' + JSON.stringify(name) + ')').join(' ') + ')',
+    '(allow mach-lookup (xpc-service-name "com.apple.MTLCompilerService"))',
     '(allow file-read* (literal "/") (subpath ' + quoted(appRoot) + ') (subpath ' + quoted(workRoot) + ') (subpath "/usr") (subpath "/System") (subpath "/Library/Fonts") (subpath "/Library/ColorSync") (subpath "/Library/Apple/usr/libexec/oah") (subpath "/private/etc") (subpath "/private/var/db") (subpath "/dev"))',
     '(allow file-write* (subpath ' + quoted(workRoot) + '))',
     '(deny file-read* ' + [policyRoot, '/Library/Keychains', path.join(os.homedir(), 'Library/Keychains'), ...protectedPaths].map(file => '(subpath ' + quoted(file) + ')').join(' ') + ')',
@@ -52,6 +66,7 @@ export function hostProbeSandboxProfile(raw) {
 export function hostProbeEnvironment(workRoot) {
   workRoot = absolute(workRoot);
   return { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C', HOME: workRoot,
+    SDL_MAC_BACKGROUND_APP: '0', SDL_RENDER_DRIVER: 'software',
     TMPDIR: workRoot, TMP: workRoot, TEMP: workRoot,
     XDG_CONFIG_HOME: workRoot, XDG_DATA_HOME: workRoot, XDG_CACHE_HOME: workRoot };
 }
@@ -98,6 +113,24 @@ async function executableFingerprint(appRoot, executable, signal) {
     if (!sameIdentity(after, opened) || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) fail('HOST_PROBE_IDENTITY_CHANGED', 'Host executable changed during hashing.');
     return { sha256: digest.digest('hex'), ...identity(after), bytes: after.size, mtimeMs: after.mtimeMs };
   } finally { await file.close(); }
+}
+async function bundleMetadata(appRoot, signal) {
+  cancelled(signal);
+  const file = path.join(appRoot, 'Contents/Info.plist'), before = await lstat(file);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size < 1 || before.size > 65536) fail('INVALID_HOST_PROBE_BUNDLE', 'A bounded ordinary bundle metadata file is required.');
+  const opened = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = await opened.stat();
+    if (!sameIdentity(info, before) || info.size !== before.size || info.mtimeMs !== before.mtimeMs) fail('HOST_PROBE_IDENTITY_CHANGED', 'Bundle metadata changed.');
+    const bytes = Buffer.alloc(info.size); let at = 0;
+    while (at < bytes.length) { cancelled(signal); const next = await opened.read(bytes, at, bytes.length-at, at); if (!next.bytesRead) fail('HOST_PROBE_IDENTITY_CHANGED', 'Bundle metadata was truncated.'); at += next.bytesRead; }
+    const xml = bytes.toString('utf8'), matches = [...xml.matchAll(/<key>CFBundleIdentifier<\/key>\s*<string>([A-Za-z0-9][A-Za-z0-9.-]{2,127})<\/string>/g)];
+    const names = [...xml.matchAll(/<key>CFBundleExecutable<\/key>\s*<string>([A-Za-z0-9._-]{1,80})<\/string>/g)];
+    if (!Buffer.from(xml).equals(bytes) || matches.length !== 1 || names.length !== 1 || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(matches[0][1])) fail('INVALID_HOST_PROBE_BUNDLE', 'This backend requires explicit XML bundle identity fields.');
+    const after = await opened.stat(), named = await lstat(file);
+    if (!sameIdentity(after, info) || after.size !== info.size || after.mtimeMs !== info.mtimeMs || !sameIdentity(named, info) || named.isSymbolicLink()) fail('HOST_PROBE_IDENTITY_CHANGED', 'Bundle metadata changed.');
+    cancelled(signal); return { identifier: matches[0][1], executableName: names[0][1], sha256: createHash('sha256').update(bytes).digest('hex'), ...identity(info), bytes: info.size, mtimeMs: info.mtimeMs };
+  } finally { await opened.close(); }
 }
 const emptyResult = () => ({ exitCode: null, output: '', cancelled: false, timedOut: false, overflow: false, spawnError: false, termSignal: null });
 function runIsolated(policy, executable, args, { cwd, env, signal, timeoutMs }) {
@@ -165,6 +198,7 @@ export async function createHostProbeIsolation(raw = {}) {
     if (!app.path.endsWith('.app') || inside(app.path, work.path) || inside(work.path, app.path) || app.path === '/' || work.path === '/') fail('INVALID_HOST_PROBE_PATH', 'Probe writes must remain outside a dedicated application bundle.');
     const executable = path.join(app.path, path.relative(selected.appRoot, selected.executable));
     const fingerprint = await executableFingerprint(app.path, executable, lifecycle.signal);
+    const metadata = await bundleMetadata(app.path, lifecycle.signal);
     const protectedPaths = []; let actualEnv;
     if (selected.actualEnv) {
       const info = await lstat(selected.actualEnv).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
@@ -196,14 +230,38 @@ export async function createHostProbeIsolation(raw = {}) {
       }
       const current = await executableFingerprint(app.path, executable, signal);
       if (JSON.stringify(current) !== JSON.stringify(fingerprint)) fail('HOST_PROBE_IDENTITY_CHANGED', 'The pinned host executable changed.');
+      if (JSON.stringify(await bundleMetadata(app.path, signal)) !== JSON.stringify(metadata)) fail('HOST_PROBE_IDENTITY_CHANGED', 'The pinned bundle metadata changed.');
       cancelled(signal);
     }
     const evidence = Object.freeze({ scope: 'trusted-official-host-probe-only', platform: process.platform, boundaries: Object.freeze(boundaries),
       executableSha256: fingerprint.sha256, policySha256: createHash('sha256').update(profile).digest('hex'),
+      bundleIdentifier: metadata.identifier, infoPlistSha256: metadata.sha256,
       guiMachLookup: 'explicit-service-list', arbitraryModelSourceAllowed: false, realModBuild: 'not_run', conversionGameAcceptance: 'not_run', readyToInstall: false });
     opened = true;
     return {
       evidence,
+      async prepareGuiRun(rawArgs, rawOptions = {}) {
+        if (closed) fail('HOST_PROBE_CLOSED', 'Host isolation is closed.');
+        const args = validateHostProbeArguments(rawArgs), options = validateHostProbeRunOptions(rawOptions), controller = new AbortController();
+        const item = { controller, done: null }; pending.add(item);
+        const onAbort = () => controller.abort(); options.signal?.addEventListener('abort', onAbort, { once: true });
+        if (options.signal?.aborted || lifecycle.signal.aborted) controller.abort();
+        const preparation = (async () => {
+          await verifyBinding(controller.signal); if (closed) controller.abort(); cancelled(controller.signal);
+          return createGuiHostInvocation({ policyFile: policy, policyRoot, executable, args, cwd: work.path, env, bundleIdentifier: metadata.identifier,
+            ...(actualEnv ? { actualEnv } : {}), policySha256: evidence.policySha256,
+            ...(['GameBridgeHostInvocation', 'GameBridgeHostEntry'].includes(metadata.executableName) ? { launchAppPath: app.path } : {}),
+            signal: controller.signal, timeoutMs: options.timeoutMs, verifyBinding: () => verifyBinding(controller.signal) });
+        })();
+        item.done = preparation.then(invocation => invocation.completion).finally(() => {
+          options.signal?.removeEventListener('abort', onAbort); pending.delete(item);
+        });
+        // Keep a preparation rejection observed while the caller awaits it.
+        item.done.catch(() => {});
+        const invocation = await preparation;
+        if (closed || controller.signal.aborted) { await invocation.close(); cancelled(controller.signal); }
+        return { appPath: invocation.appPath, completion: item.done, provenance: invocation.provenance, captureDiagnostics: invocation.captureDiagnostics };
+      },
       async run(rawArgs, rawOptions = {}) {
         if (closed) fail('HOST_PROBE_CLOSED', 'Host isolation is closed.');
         const args = validateHostProbeArguments(rawArgs), options = validateHostProbeRunOptions(rawOptions), controller = new AbortController();
