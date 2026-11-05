@@ -1,6 +1,6 @@
 # GameBridge 转换器使用与实现状态
 
-实现版本 0.8.0 Alpha，更新于 2026-11-04（Asia/Shanghai）。工作台处理需求、研究建议和五角色分析协作；独立开发者入口新增行为规格校验、文件产物和真实 C# 内核编译/验证。游戏适配器为空，Mod 工程生成、Mod 编译修复和游戏运行尚未接入。[执行内核与命令](execution-kernel.md) · [任务规范](task-runtime.md) · [此前能力验收](capability-check.md)
+实现版本 0.8.1 Alpha，更新于 2026-11-05（Asia/Shanghai）。工作台处理需求、研究建议和五角色分析协作；独立开发者入口提供行为规格校验、文件产物和真实 C# 内核编译/验证。本轮增加 Squirrel 后端和真实宿主接口探针，原生 VM 通过 40 步内核向量，但计时/位移/输入仍阻断。游戏适配器为空，Mod 工程生成、Mod 编译修复和转换游戏验收尚未接入。[宿主预检与失败](host-preflight.md) · [执行内核与命令](execution-kernel.md) · [任务规范](task-runtime.md) · [此前能力验收](capability-check.md)
 
 [产品规划](product-plan.md) · [清理记录](cleanup-record.md)
 
@@ -35,6 +35,7 @@
 | 多 Agent 协作 | 五类分析角色实际分工，来源与宿主建议可以并行；输出未核实 |
 | 中断恢复 | 本机原子快照、单写者保护、显式恢复与完成任务去重 |
 | 行为内核生成与编译 | CLI/API 接受明确规格，生成锁定 C# 工程，真实 SDK 隔离编译与序列对照；不含游戏引用 |
+| Squirrel 与宿主预检 | 同规格确定性生成；真实候选原生 VM 执行内核向量；可操作窗口与真实交互阻断，不登记支持 |
 | Mod 工程生成 | 未实现，`readyToGenerate=false` |
 | 真实 Mod 编译与修复 | 未实现、`not_run` |
 | 安装与游戏验收 | 未实现、`not_run` |
